@@ -1,0 +1,16 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<p>Pick a tribe, year and quarter, and the Monday-to-Friday date range to cover. Sprints (SP1, SP2, ...)
+are generated automatically in consecutive 2-week blocks - the range must divide evenly into whole
+2-week sprints (up to 8 per quarter), and must not overlap sprints that already exist.</p>
+
+<form method="post">
+  {% csrf_token %}
+  {# form.as_table already renders non-field errors - don't print them twice. #}
+  <table>
+    {{ form.as_table }}
+  </table>
+  <input type="submit" value="Generate" class="default">
+</form>
+{% endblock %}

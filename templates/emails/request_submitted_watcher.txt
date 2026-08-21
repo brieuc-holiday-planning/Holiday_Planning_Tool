@@ -1,0 +1,8 @@
+Hi,
+
+This is an FYI: {{ holiday_request.requester }} ({{ holiday_request.requester.title.name }}) submitted a holiday request covering {{ holiday_request.days.count }} day(s):
+{% for day in holiday_request.days.all %}
+- {{ day.date }} ({{ day.get_day_part_display }})
+{% endfor %}
+
+This request is pending approval from {{ holiday_request.routed_chapter_lead }}.

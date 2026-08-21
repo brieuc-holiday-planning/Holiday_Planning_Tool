@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}{{ cluster.name }} dashboard{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <div class="eyebrow">{{ cluster.tribe.name }}</div>
+    <h1>{{ cluster.name }} dashboard</h1>
+    <p class="subtitle">Every squad in this cluster, for {{ year }}.</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Browse</h2></div>
+  <div class="card-body">
+    <div class="field">
+      <label>Clusters</label>
+      <div class="row tight">
+        {% for c in visible_clusters %}
+          {% if c.id == cluster.id %}
+            <span class="nav-link" aria-current="page">{{ c.name }}</span>
+          {% else %}
+            <a class="nav-link" href="{% url 'dashboard:cluster_dashboard' c.id %}">{{ c.name }}</a>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    <div class="field" style="margin-top:0.85rem;">
+      <label>Squads in {{ cluster.name }}</label>
+      <div class="row tight">
+        {% for squad in cluster.squads.all %}
+          <a class="nav-link" href="{% url 'dashboard:squad_dashboard' squad.id %}">{{ squad.name }}</a>
+        {% empty %}
+          <span class="muted" style="font-size:0.8125rem;">No squads in this cluster yet.</span>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Cluster composition</h2></div>
+  <div class="card-body">
+    {% include "dashboard/_composition.html" with total_count=rows|length scope_label="cluster" %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>Worked &amp; absence days — {{ year }}</h2>
+    <span class="tag">Bank holidays &amp; weekends excluded</span>
+  </div>
+  <div class="card-body flush">
+    {% include "dashboard/_metrics_table.html" with show_squad=True empty_text="Add squads and members to this cluster from the admin." %}
+  </div>
+</div>
+{% endblock %}

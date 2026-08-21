@@ -1,0 +1,7 @@
+<p>Hi,</p>
+<p>{{ editor }} directly updated {{ member }}'s holiday status from the squad calendar, bypassing the normal approval workflow. For your information:</p>
+<ul>
+{% for day in days %}<li>{{ day.date }} ({{ day.get_day_part_display }}): {{ day.get_status_display }}</li>
+{% endfor %}
+</ul>
+<p>Comment: {{ comment }}</p>

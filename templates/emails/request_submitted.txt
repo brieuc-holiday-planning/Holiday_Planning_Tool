@@ -1,0 +1,11 @@
+Hi {{ holiday_request.routed_chapter_lead }},
+
+{{ holiday_request.requester }} ({{ holiday_request.requester.title.name }}) submitted a holiday request covering {{ holiday_request.days.count }} day(s):
+{% for day in holiday_request.days.all %}
+- {{ day.date }} ({{ day.get_day_part_display }})
+{% endfor %}
+{% if holiday_request.note %}
+Note: {{ holiday_request.note }}
+{% endif %}
+
+Please review and approve or refuse it in the Holiday Planning Tool.

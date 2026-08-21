@@ -1,0 +1,429 @@
+{% extends "base.html" %}
+{% load versioned_static %}
+{% block title %}{{ squad.name }} calendar{% endblock %}
+
+{% block extra_head %}
+<script src="{% vstatic 'vendor/fullcalendar/index.global.min.js' %}"></script>
+<script src="{% vstatic 'js/squad_calendar_widget.js' %}"></script>
+<script src="{% vstatic 'js/cluster_squad_picker.js' %}"></script>
+<link rel="stylesheet" href="{% vstatic 'css/calendar.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <div class="eyebrow">{{ squad.tribe.name }} · {{ squad.cluster.name }}</div>
+    <h1>{{ squad.name }} calendar</h1>
+    <p class="subtitle">
+      {% if is_own_squad %}Who's away in your squad — click days to request time off.
+      {% else %}Viewing another squad. You can only request time off in your own squad.{% endif %}
+    </p>
+  </div>
+  <div class="page-actions">
+    <a class="btn secondary" href="{% url 'dashboard:squad_dashboard' squad.id %}">
+      <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path d="M3 13a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 01-1 1H4a1 1 0 01-1-1v-4zm5-5a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V8zm5-5a1 1 0 011-1h2a1 1 0 011 1v14a1 1 0 01-1 1h-2a1 1 0 01-1-1V3z"/></svg>
+      Metrics
+    </a>
+  </div>
+</div>
+
+<div class="cal-toolbar card">
+  <div class="card-body">
+    <div class="field-row">
+      <div class="field">
+        <label for="cluster-select">Cluster</label>
+        <select id="cluster-select">
+          {% for cluster in clusters_with_squads %}
+          <option value="{{ cluster.id }}"{% if cluster.id == squad.cluster_id %} selected{% endif %}>{{ cluster.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="squad-select">Squad</label>
+        <select id="squad-select">
+          {% for cluster in clusters_with_squads %}{% for s in cluster.squads %}
+          <option value="{{ s.id }}" data-cluster="{{ cluster.id }}" data-url="{{ s.url }}"{% if s.id == squad.id %} selected{% endif %}>{{ s.name }}</option>
+          {% endfor %}{% endfor %}
+        </select>
+      </div>
+      <div class="field cal-legend-field">
+        <label>Legend</label>
+        <div class="legend">
+          <span><i style="background:#21764a;"></i>Approved</span>
+          <span><i style="background:#e0a02a;"></i>Pending</span>
+          <span><i style="background:#c0392f;"></i>Bank holiday</span>
+          <span><i style="background:#eaf1fb;box-shadow:inset 0 0 0 1px var(--border-strong);"></i>Sprint</span>
+          <span><i style="background:#7b3fa0;"></i>Event</span>
+          {% if is_own_squad %}
+          <span><i style="background:#64b5f6;"></i>My pick · full</span>
+          <span><i style="background:linear-gradient(90deg,#64b5f6 50%,#fff 50%);box-shadow:inset 0 0 0 1px var(--border-strong);"></i>My pick · half</span>
+          {% endif %}
+          {% if can_silent_edit %}
+          <span><i style="background-image:repeating-linear-gradient(45deg,#9fa8da,#9fa8da 2px,#e8eaf6 2px,#e8eaf6 4px);box-shadow:inset 0 0 0 1px var(--border-strong);"></i>Edit · full</span>
+          <span><i style="background-color:#fff;background-image:repeating-linear-gradient(45deg,#9fa8da,#9fa8da 2px,#e8eaf6 2px,#e8eaf6 4px);background-size:50% 100%;background-repeat:no-repeat;box-shadow:inset 0 0 0 1px var(--border-strong);"></i>Edit · half</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    {% if active_title_totals %}
+    <p class="hint cal-abbr">
+      Each day shows how many people are working per title —
+      {% for t in active_title_totals %}<span class="tag">{{ t.abbreviation }}</span> {{ t.label }}{% if not forloop.last %} · {% endif %}{% endfor %}
+    </p>
+    {% endif %}
+  </div>
+</div>
+
+<div class="layout">
+  <div class="card cal-card">
+    <div id="calendar"></div>
+  </div>
+
+  {% if is_own_squad %}
+  <aside id="builder" class="card">
+    <div class="card-head">
+      <h2>Request holidays</h2>
+    </div>
+    <div class="card-body">
+      <p class="hint">Click a day on the calendar — 1st click books a full day, 2nd makes it a half day, 3rd clears it.</p>
+      <ul id="selected-days"></ul>
+      <div class="builder-empty">No days selected yet.</div>
+      <form id="request-form" method="post" action="{% url 'holidays:submit_request' squad.id %}">
+        {% csrf_token %}
+        <input type="hidden" name="days_json" id="days_json">
+        <div class="field">
+          <label for="note">Note <span class="muted">(optional)</span></label>
+          <textarea name="note" id="note" rows="2" placeholder="Anything your chapter lead should know?"></textarea>
+        </div>
+        <button type="submit" class="btn block">Submit request</button>
+      </form>
+    </div>
+  </aside>
+  {% endif %}
+</div>
+
+{% if can_silent_edit %}
+<details class="silent-edit-panel">
+  <summary>Advanced &middot; update a member's holiday</summary>
+  <div class="silent-edit-body">
+    <p class="hint">
+      {{ squad.name }} members only — never a Chapter Lead. Pick a member, switch on edit mode, then click a
+      day: what's already booked decides what each click proposes, and one more click clears it. This skips
+      the approval workflow, updates the calendar straight away and emails a recap to the chapter lead.
+    </p>
+
+    <div class="silent-edit-controls">
+      <div>
+        <label for="silent-edit-member">Member</label>
+        <select id="silent-edit-member" name="member_id" form="silent-edit-form">
+          {% for m in squad_members %}<option value="{{ m.id }}">{{ m }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <label class="toggle-switch">
+      <input type="checkbox" id="silent-edit-toggle">
+      <span class="toggle-slider"></span>
+      <span class="toggle-label">Click calendar days to stage them</span>
+    </label>
+
+    <ul id="silent-edit-days" class="silent-edit-list"></ul>
+
+    <form id="silent-edit-form" method="post" action="{% url 'holidays:silent_edit_status' squad.id %}">
+      {% csrf_token %}
+      <input type="hidden" name="days_json" id="silent_edit_days_json">
+      <div class="field">
+        <label for="silent_edit_comment">Comment (required)</label>
+        <textarea name="comment" id="silent_edit_comment" rows="2" required placeholder="Why is this being changed?"></textarea>
+      </div>
+      <button type="submit" class="btn secondary">Apply changes</button>
+    </form>
+  </div>
+</details>
+{% endif %}
+
+{% if is_own_squad %}
+<div class="card">
+  <div class="card-head">
+    <div>
+      <h2>My recent requests</h2>
+      <p class="hint">Each day is decided individually, so one submission can end up partly approved.</p>
+    </div>
+  </div>
+  <div class="card-body flush">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>Date</th><th>Day part</th><th>Status</th><th>Submitted</th><th>Reason</th></tr>
+        </thead>
+        <tbody>
+          {% for req in my_requests %}
+            {% for day in req.days.all %}
+            <tr>
+              <td class="nowrap"><strong>{{ day.date|date:"D j M" }}</strong> <span class="muted">{{ day.date|date:"Y" }}</span></td>
+              <td><span class="tag">{{ day.get_day_part_display }}</span></td>
+              <td><span class="pill {{ day.status }}">{{ day.get_status_display }}</span></td>
+              <td class="nowrap muted">{{ req.submitted_at|date:"j M Y" }}</td>
+              <td class="muted">{{ day.decision_reason|default:"—" }}</td>
+            </tr>
+            {% endfor %}
+          {% empty %}
+          <tr>
+            <td class="empty-cell" colspan="5">
+              <div class="empty">
+                <svg width="28" height="28" viewBox="0 0 20 20" fill="currentColor"><path d="M6 2a1 1 0 011 1v1h6V3a1 1 0 112 0v1h.5A2.5 2.5 0 0118 6.5v9A2.5 2.5 0 0115.5 18h-11A2.5 2.5 0 012 15.5v-9A2.5 2.5 0 014.5 4H5V3a1 1 0 011-1zM4 8v7.5c0 .28.22.5.5.5h11a.5.5 0 00.5-.5V8H4z"/></svg>
+                <div class="empty-title">No requests yet</div>
+                <div class="empty-sub">Pick days on the calendar above to get started.</div>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+{{ title_totals|json_script:"title-totals-data" }}
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  var isOwnSquad = {{ is_own_squad|yesno:"true,false" }};
+  var listEl = document.getElementById("selected-days");
+  var jsonInput = document.getElementById("days_json");
+
+  var titleTotals = {};
+  JSON.parse(document.getElementById("title-totals-data").textContent).forEach(function (t) {
+    titleTotals[t.code] = { label: t.label, abbreviation: t.abbreviation, total: t.total };
+  });
+
+  var builderEmptyEl = document.querySelector(".builder-empty");
+  var submitBtn = document.querySelector("#request-form button[type=submit]");
+
+  function renderSelected(selectedDays) {
+    if (!listEl) return;
+    listEl.innerHTML = "";
+    var dates = Object.keys(selectedDays).sort();
+    if (builderEmptyEl) builderEmptyEl.style.display = dates.length ? "none" : "";
+    if (submitBtn) submitBtn.disabled = dates.length === 0;
+    dates.forEach(function (dateStr) {
+      var li = document.createElement("li");
+      var label = document.createElement("span");
+      label.className = "day-label";
+      label.textContent = dateStr;
+      var select = document.createElement("select");
+      ["full", "half"].forEach(function (part) {
+        var opt = document.createElement("option");
+        opt.value = part;
+        opt.textContent = part === "full" ? "Full day" : "Half day";
+        if (selectedDays[dateStr] === part) opt.selected = true;
+        select.appendChild(opt);
+      });
+      select.addEventListener("change", function () {
+        selectedDays[dateStr] = select.value;
+        syncJson(selectedDays);
+        widget.calendar.render();
+      });
+      var remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "×";
+      remove.className = "remove-row";
+      remove.title = "Remove " + dateStr;
+      remove.addEventListener("click", function () {
+        delete selectedDays[dateStr];
+        renderSelected(selectedDays);
+        syncJson(selectedDays);
+        widget.calendar.render();
+      });
+      li.appendChild(label);
+      var controls = document.createElement("span");
+      controls.appendChild(select);
+      controls.appendChild(remove);
+      li.appendChild(controls);
+      listEl.appendChild(li);
+    });
+  }
+  renderSelected({});
+
+  function syncJson(selectedDays) {
+    if (!jsonInput) return;
+    var payload = Object.keys(selectedDays).map(function (d) {
+      return { date: d, day_part: selectedDays[d] };
+    });
+    jsonInput.value = JSON.stringify(payload);
+  }
+
+  var silentListEl = document.getElementById("silent-edit-days");
+  var silentJsonInput = document.getElementById("silent_edit_days_json");
+  var silentMemberSelect = document.getElementById("silent-edit-member");
+
+  var CURRENT_LABELS = { none: "currently: nothing", half: "currently: half day", full: "currently: full day" };
+
+  // The clicks available from a given day depend on what's already there -
+  // each entry is an ordered list of "steps", and clicking advances to the
+  // next step; clicking past the last one clears the day back to unstaged.
+  // A step is itself a list of 1 or 2 equally-valid options: 1 renders as
+  // plain text (the click already resolved it), 2 renders as a small
+  // dropdown (both make sense, so let the editor pick rather than forcing
+  // an order via more clicks).
+  var SILENT_CYCLES = {
+    none: [
+      [{ action: "add", day_part: "full", label: "Add full day" }],
+      [{ action: "add", day_part: "half", label: "Add half day" }],
+    ],
+    half: [
+      [
+        { action: "add", day_part: "full", label: "Add half day (becomes full day)" },
+        { action: "cancel", day_part: "half", label: "Remove half day" },
+      ],
+    ],
+    full: [
+      [{ action: "cancel", day_part: "full", label: "Remove full day" }],
+      [{ action: "add", day_part: "half", label: "Remove half day (becomes half day)" }],
+    ],
+  };
+
+  function getCurrentStatus(dateStr) {
+    var memberId = silentMemberSelect ? parseInt(silentMemberSelect.value, 10) : null;
+    if (!memberId) return "none";
+    var current = "none";
+    widget.calendar.getEvents().some(function (ev) {
+      var props = ev.extendedProps || {};
+      if (props.type === "holiday" && props.requesterId === memberId && formatLocalDate(ev.start) === dateStr) {
+        current = props.dayPart;
+        return true;
+      }
+      return false;
+    });
+    return current;
+  }
+
+  // widget is assigned below, but this (like getCurrentStatus above) is
+  // only ever called from a click handler that fires well after that
+  // assignment has happened.
+  function onSilentDayClick(dateStr) {
+    var silentDays = widget.silentDays;
+    var entry = silentDays[dateStr];
+    if (!entry) {
+      var current = getCurrentStatus(dateStr);
+      var firstStep = SILENT_CYCLES[current][0][0];
+      entry = { current: current, stepIndex: 0, action: firstStep.action, day_part: firstStep.day_part };
+      silentDays[dateStr] = entry;
+    } else {
+      var cycle = SILENT_CYCLES[entry.current];
+      var nextIndex = entry.stepIndex + 1;
+      if (nextIndex >= cycle.length) {
+        delete silentDays[dateStr]; // one click past the last step: back to unstaged
+      } else {
+        var step = cycle[nextIndex][0];
+        entry.stepIndex = nextIndex;
+        entry.action = step.action;
+        entry.day_part = step.day_part;
+      }
+    }
+    renderSilentDays(silentDays);
+    syncSilentJson(silentDays);
+  }
+
+  function renderSilentDays(silentDays) {
+    if (!silentListEl) return;
+    silentListEl.innerHTML = "";
+    Object.keys(silentDays).sort().forEach(function (dateStr) {
+      var entry = silentDays[dateStr];
+      var step = SILENT_CYCLES[entry.current][entry.stepIndex];
+      var li = document.createElement("li");
+      var label = document.createElement("span");
+      label.textContent = dateStr + " ";
+      var currentTag = document.createElement("span");
+      currentTag.className = "current-status";
+      currentTag.textContent = "(" + (CURRENT_LABELS[entry.current] || "") + ")";
+      label.appendChild(currentTag);
+
+      var controls = document.createElement("span");
+
+      if (step.length > 1) {
+        var select = document.createElement("select");
+        step.forEach(function (opt) {
+          var el = document.createElement("option");
+          el.value = opt.action + ":" + opt.day_part;
+          el.textContent = opt.label;
+          if (entry.action === opt.action && entry.day_part === opt.day_part) el.selected = true;
+          select.appendChild(el);
+        });
+        select.addEventListener("change", function () {
+          var parts = select.value.split(":");
+          entry.action = parts[0];
+          entry.day_part = parts[1];
+          syncSilentJson(silentDays);
+          widget.calendar.render();
+        });
+        controls.appendChild(select);
+      } else {
+        var choiceLabel = document.createElement("span");
+        choiceLabel.className = "silent-choice";
+        choiceLabel.textContent = step[0].label;
+        controls.appendChild(choiceLabel);
+      }
+
+      var remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "×";
+      remove.className = "remove-row";
+      remove.title = "Remove";
+      remove.addEventListener("click", function () {
+        delete silentDays[dateStr];
+        renderSilentDays(silentDays);
+        syncSilentJson(silentDays);
+        widget.calendar.render();
+      });
+      controls.appendChild(remove);
+
+      li.appendChild(label);
+      li.appendChild(controls);
+      silentListEl.appendChild(li);
+    });
+  }
+
+  function syncSilentJson(silentDays) {
+    if (!silentJsonInput) return;
+    var payload = Object.keys(silentDays).map(function (d) {
+      return { date: d, action: silentDays[d].action, day_part: silentDays[d].day_part };
+    });
+    silentJsonInput.value = JSON.stringify(payload);
+  }
+
+  var widget = initSquadCalendar({
+    elementId: "calendar",
+    feedUrl: "{% url 'holidays:calendar_feed' squad.id %}",
+    selectable: isOwnSquad,
+    titleTotals: titleTotals,
+    onSelectionChange: function (selectedDays) {
+      renderSelected(selectedDays);
+      syncJson(selectedDays);
+    },
+    onSilentDayClick: onSilentDayClick
+  });
+
+  var silentToggle = document.getElementById("silent-edit-toggle");
+  if (silentToggle) {
+    silentToggle.addEventListener("change", function () {
+      widget.setSilentMode(silentToggle.checked);
+    });
+  }
+  if (silentMemberSelect) {
+    // Staged days reflect a specific member's current status, so switching
+    // members mid-way would leave stale/wrong "currently: ..." entries.
+    silentMemberSelect.addEventListener("change", function () {
+      Object.keys(widget.silentDays).forEach(function (d) {
+        delete widget.silentDays[d];
+      });
+      renderSilentDays(widget.silentDays);
+      syncSilentJson(widget.silentDays);
+      widget.calendar.render();
+    });
+  }
+
+  initClusterSquadPicker("cluster-select", "squad-select");
+});
+</script>
+{% endblock %}

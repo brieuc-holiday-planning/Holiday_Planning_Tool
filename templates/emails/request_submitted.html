@@ -1,0 +1,9 @@
+<p>Hi {{ holiday_request.routed_chapter_lead }},</p>
+<p>{{ holiday_request.requester }} ({{ holiday_request.requester.title.name }}) submitted a holiday request covering {{ holiday_request.days.count }} day(s):</p>
+<ul>
+{% for day in holiday_request.days.all %}
+  <li>{{ day.date }} ({{ day.get_day_part_display }})</li>
+{% endfor %}
+</ul>
+{% if holiday_request.note %}<p>Note: {{ holiday_request.note }}</p>{% endif %}
+<p>Please review and approve or refuse it in the Holiday Planning Tool.</p>

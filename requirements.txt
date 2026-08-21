@@ -1,0 +1,8 @@
+Django>=4.2,<5.0
+django-environ>=0.11
+
+# Production serving: gunicorn is the WSGI server, whitenoise lets Django
+# serve its own static files (with DEBUG=False Django serves none at all),
+# so no separate nginx/CDN is required for a small internal deployment.
+gunicorn>=21.2
+whitenoise>=6.6

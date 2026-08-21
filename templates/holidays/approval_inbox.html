@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}Approval inbox{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <div class="eyebrow">Approvals</div>
+    <h1>Approval inbox</h1>
+    <p class="subtitle">Each day is decided on its own — a multi-day request can be partly approved.</p>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <div class="row">
+      <h2>Pending</h2>
+      <span class="count-badge{% if not pending.count %} zero{% endif %}">{{ pending.count }}</span>
+    </div>
+    {% if pending_requesters %}
+    <form method="get" class="row tight">
+      <input type="hidden" name="decided_requester" value="{{ selected_decided_requester }}">
+      <label for="pending_requester" style="margin:0;">Requester</label>
+      <select name="pending_requester" id="pending_requester" onchange="this.form.submit()" style="width:auto;min-width:150px;">
+        <option value="">Everyone</option>
+        {% for u in pending_requesters %}
+        <option value="{{ u.id }}"{% if selected_pending_requester == u.id|stringformat:"s" %} selected{% endif %}>{{ u }}</option>
+        {% endfor %}
+      </select>
+    </form>
+    {% endif %}
+  </div>
+  <div class="card-body flush">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Requester</th>
+            <th>Squad</th>
+            <th>Date</th>
+            <th>Day part</th>
+            <th>Note</th>
+            <th style="text-align:right;">Decision</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for day in pending %}
+          <tr>
+            <td>
+              <div class="cell-person">
+                <span class="avatar sm" aria-hidden="true">{{ day.request.requester|stringformat:"s"|slice:":1" }}</span>
+                <span>
+                  <span class="name">{{ day.request.requester }}</span><br>
+                  <span class="sub">{{ day.request.requester.title.name }}</span>
+                </span>
+              </div>
+            </td>
+            <td class="nowrap muted">{{ day.request.requester.squad.name|default:"—" }}</td>
+            <td class="nowrap"><strong>{{ day.date|date:"D j M" }}</strong> <span class="muted">{{ day.date|date:"Y" }}</span></td>
+            <td><span class="tag">{{ day.get_day_part_display }}</span></td>
+            <td class="muted">{{ day.request.note|default:"—" }}</td>
+            <td>
+              <div class="decision-actions">
+                <form method="post" action="{% url 'holidays:approve_day' day.id %}">
+                  {% csrf_token %}<button class="btn approve sm" type="submit">Approve</button>
+                </form>
+                <details class="refuse-pop">
+                  <summary class="btn refuse sm">Refuse</summary>
+                  <div class="refuse-panel">
+                    <form method="post" action="{% url 'holidays:refuse_day' day.id %}">
+                      {% csrf_token %}
+                      <label for="reason-{{ day.id }}">Justification (required)</label>
+                      <textarea id="reason-{{ day.id }}" name="reason" rows="2" required placeholder="Why is this day refused?"></textarea>
+                      <button class="btn refuse sm block" type="submit" style="margin-top:0.5rem;">Confirm refusal</button>
+                    </form>
+                  </div>
+                </details>
+              </div>
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td class="empty-cell" colspan="6">
+              <div class="empty">
+                <svg width="28" height="28" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.86-9.81a.75.75 0 00-1.22-.88l-3.48 4.79-1.88-1.88a.75.75 0 10-1.06 1.06l2.5 2.5a.75.75 0 001.14-.09l4-5.5z" clip-rule="evenodd"/></svg>
+                <div class="empty-title">Nothing pending.</div>
+                <div class="empty-sub">You're all caught up.</div>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <div>
+      <h2>Recently decided</h2>
+      <p class="hint">Includes days set directly by a squad member with edit rights.</p>
+    </div>
+    {% if decided_requesters %}
+    <form method="get" class="row tight">
+      <input type="hidden" name="pending_requester" value="{{ selected_pending_requester }}">
+      <label for="decided_requester" style="margin:0;">Requester</label>
+      <select name="decided_requester" id="decided_requester" onchange="this.form.submit()" style="width:auto;min-width:150px;">
+        <option value="">Everyone (last 20)</option>
+        {% for u in decided_requesters %}
+        <option value="{{ u.id }}"{% if selected_decided_requester == u.id|stringformat:"s" %} selected{% endif %}>{{ u }}</option>
+        {% endfor %}
+      </select>
+    </form>
+    {% endif %}
+  </div>
+  <div class="card-body flush">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Requester</th>
+            <th>Date</th>
+            <th>Day part</th>
+            <th>Status</th>
+            <th>Decided by</th>
+            <th>When</th>
+            <th>Reason / comment</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for day in decided %}
+          <tr>
+            <td>
+              <div class="cell-person">
+                <span class="avatar sm" aria-hidden="true">{{ day.request.requester|stringformat:"s"|slice:":1" }}</span>
+                <span class="name">{{ day.request.requester }}</span>
+              </div>
+            </td>
+            <td class="nowrap"><strong>{{ day.date|date:"D j M" }}</strong> <span class="muted">{{ day.date|date:"Y" }}</span></td>
+            <td><span class="tag">{{ day.get_day_part_display }}</span></td>
+            <td><span class="pill {{ day.status }}">{{ day.get_status_display }}</span></td>
+            <td class="nowrap">{{ day.decided_by|default:"—" }}</td>
+            <td class="nowrap muted">{{ day.decided_at|date:"j M, H:i" }}</td>
+            <td class="muted">{{ day.decision_reason|default:"—" }}</td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td class="empty-cell" colspan="7">
+              <div class="empty">
+                <svg width="28" height="28" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm.75-13a.75.75 0 00-1.5 0v5c0 .2.08.39.22.53l3 3a.75.75 0 101.06-1.06l-2.78-2.78V5z" clip-rule="evenodd"/></svg>
+                <div class="empty-title">No decisions yet</div>
+                <div class="empty-sub">Approved and refused days will appear here.</div>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

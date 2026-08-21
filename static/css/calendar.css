@@ -1,0 +1,432 @@
+/* ==========================================================================
+   Squad calendar page — layout, FullCalendar theming, request builder and
+   the advanced (silent-edit) panel. Builds on the tokens in app.css.
+   ========================================================================== */
+
+/* --- Page layout ------------------------------------------------------- */
+.layout {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+.cal-card {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 1rem;
+}
+.cal-card #calendar { padding: 0.9rem 1rem 1rem; }
+
+#builder {
+  width: 300px;
+  flex-shrink: 0;
+  position: sticky;
+  top: calc(var(--header-h) + 1rem);
+}
+
+.cal-toolbar .cal-legend-field { flex: 1; min-width: 240px; }
+.cal-toolbar .cal-abbr {
+  margin: 0.85rem 0 0;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+}
+.cal-toolbar .cal-abbr .tag { margin-right: 0.15rem; }
+
+@media (max-width: 900px) {
+  .layout { flex-direction: column; }
+  #builder { width: 100%; position: static; }
+}
+@media (max-width: 640px) {
+  /* Five titles in a ~55px-wide cell wrap to four unreadable lines and
+     swamp the day itself. The same figures are one tap away on Squad
+     metrics, so the calendar keeps its primary job here: who is away. */
+  .day-working-summary { display: none; }
+  #calendar .fc-daygrid-day-frame { min-height: 62px; }
+}
+
+/* --- FullCalendar theming ---------------------------------------------- */
+#calendar {
+  --fc-border-color: var(--border);
+  --fc-page-bg-color: var(--surface);
+  --fc-neutral-bg-color: var(--surface-3);
+  --fc-today-bg-color: rgba(79, 87, 196, 0.05);
+  --fc-event-border-color: transparent;
+  font-size: 0.8125rem;
+}
+
+#calendar .fc-toolbar.fc-header-toolbar {
+  margin-bottom: 0.9rem;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+#calendar .fc-toolbar-title {
+  font-size: 1.0625rem !important;
+  font-weight: 650;
+  letter-spacing: -0.012em;
+  color: var(--text);
+}
+
+/* Buttons: FullCalendar ships a bootstrap-ish blue; align it with ours. */
+#calendar .fc-button-primary {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  color: var(--text-2);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.3rem 0.65rem;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-xs);
+  text-transform: capitalize;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+#calendar .fc-button-primary:not(:disabled):hover {
+  background: var(--surface-3);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+#calendar .fc-button-primary:not(:disabled):active,
+#calendar .fc-button-primary:not(:disabled).fc-button-active {
+  background: var(--primary-soft);
+  border-color: var(--primary-border);
+  color: var(--primary);
+}
+#calendar .fc-button-primary:focus,
+#calendar .fc-button-primary:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+#calendar .fc-button-primary:disabled {
+  background: var(--surface-3);
+  border-color: var(--border);
+  color: var(--text-3);
+  opacity: 1;
+}
+#calendar .fc-button-group > .fc-button:not(:last-child) { margin-right: -1px; }
+
+/* Grid */
+#calendar .fc-theme-standard td,
+#calendar .fc-theme-standard th { border-color: var(--border); }
+#calendar .fc-theme-standard .fc-scrollgrid {
+  border-color: var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+#calendar .fc-col-header-cell {
+  background: var(--surface-2);
+  padding: 0.4rem 0;
+}
+#calendar .fc-col-header-cell-cushion {
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding: 0.25rem 0.4rem;
+}
+#calendar .fc-col-header-cell-cushion:hover { text-decoration: none; }
+
+#calendar .fc-daygrid-day-frame { min-height: 88px; }
+#calendar .fc-daygrid-day-number {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-2);
+  padding: 0.35rem 0.45rem;
+}
+#calendar .fc-daygrid-day-number:hover { text-decoration: none; }
+#calendar .fc-day-other .fc-daygrid-day-number { color: var(--text-3); opacity: 0.55; }
+
+#calendar .fc-day-today .fc-daygrid-day-number {
+  color: #fff;
+  background: var(--primary);
+  border-radius: var(--radius-full);
+  min-width: 20px;
+  height: 20px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  margin: 0.3rem 0.35rem;
+  font-size: 0.6875rem;
+}
+
+/* Event chips */
+#calendar .fc-daygrid-event {
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin: 1px 3px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  border: none;
+  box-shadow: none;
+}
+#calendar .fc-daygrid-event:hover { filter: brightness(0.95); text-decoration: none; }
+#calendar .fc-event-title { font-weight: 600; }
+#calendar .fc-h-event .fc-event-main { color: #fff; }
+#calendar .fc-daygrid-day-events { margin-bottom: 2px; }
+
+/* Sprint background bands sit behind everything and must never eat clicks:
+ * they're absolutely positioned over the whole cell with z-index 2. */
+.fc-bg-event {
+  pointer-events: none;
+  opacity: 1 !important;
+}
+#calendar .fc-bg-event .fc-event-title {
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #7089ab;
+  margin: 3px 5px;
+  font-style: normal;
+}
+
+/* Per-day "who's working" footer injected by squad_calendar_widget.js.
+ * Wraps rather than truncating: with five titles in a squad a single
+ * no-wrap line silently hides the last ones, which is exactly the
+ * information this row exists to show. */
+.day-working-summary {
+  font-size: 0.5625rem;
+  color: var(--text-3);
+  line-height: 1.45;
+  padding: 3px 5px 4px;
+  border-top: 1px solid var(--border);
+  margin-top: auto;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  word-spacing: -0.05em;
+}
+.day-working-summary .away { color: var(--warning); font-weight: 700; }
+
+/* --- Day selection states ---------------------------------------------- */
+/* A sprint band is one absolutely-positioned element anchored in the first
+ * cell of its run and stretched across the whole week at z-index 2, so it
+ * paints over the background of *every* cell in that row. A selection
+ * colour set on the cell itself would therefore be invisible on any day
+ * inside a sprint - which, since sprints tile continuously, is most days.
+ * Selection is painted as an overlay above the band instead, with the day's
+ * own content lifted above both so numbers, event chips and the
+ * working-count footer stay readable. */
+.selected-full-day,
+.selected-half-day,
+.silent-edit-full,
+.silent-edit-half {
+  position: relative;
+}
+.selected-full-day::after,
+.selected-half-day::after,
+.silent-edit-full::after,
+.silent-edit-half::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 3;
+  pointer-events: none;
+  background-repeat: no-repeat;
+}
+#calendar .fc-daygrid-day-top,
+#calendar .fc-daygrid-day-events,
+#calendar .day-working-summary {
+  position: relative;
+  z-index: 4;
+}
+
+/* Own request builder: solid, confident blue. */
+.selected-full-day::after { background-color: #64b5f6; }
+.selected-half-day::after {
+  background-image: linear-gradient(90deg, #64b5f6 50%, transparent 50%);
+}
+/* Grey-on-blue is unreadable, so the working count darkens over a selection. */
+.selected-full-day .day-working-summary,
+.selected-half-day .day-working-summary {
+  color: #0d3c61;
+  border-top-color: rgba(255, 255, 255, 0.55);
+}
+
+/* Silent-edit staging: always hashed - deliberately distinct from the solid
+ * colors above and from the committed approved/pending events, since
+ * nothing here is saved yet. Only day_part changes the coverage, so a half
+ * day never reads as a full one. */
+.silent-edit-full::after,
+.silent-edit-half::after {
+  background-image: repeating-linear-gradient(45deg, #9fa8da, #9fa8da 4px, #e8eaf6 4px, #e8eaf6 8px);
+}
+.silent-edit-full::after { background-size: 100% 100%; }
+.silent-edit-half::after {
+  background-color: #fff;
+  background-size: 50% 100%;
+}
+
+/* --- Request builder sidebar ------------------------------------------- */
+#selected-days,
+.silent-edit-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.85rem;
+}
+#selected-days:empty,
+.silent-edit-list:empty { margin: 0; }
+
+#selected-days li,
+.silent-edit-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8125rem;
+}
+#selected-days li:last-child,
+.silent-edit-list li:last-child { border-bottom: none; }
+
+#selected-days li > span:last-child,
+.silent-edit-list li > span:last-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+#selected-days select,
+.silent-edit-list select {
+  width: auto;
+  padding: 0.2rem 1.5rem 0.2rem 0.45rem;
+  font-size: 0.75rem;
+}
+#selected-days .day-label {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.builder-empty {
+  padding: 0.9rem;
+  margin-bottom: 0.85rem;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text-3);
+  background: var(--surface-2);
+}
+
+.remove-row {
+  background: none;
+  border: none;
+  color: var(--text-3);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.1rem 0.3rem;
+  border-radius: var(--radius-sm);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.remove-row:hover { background: var(--danger-soft); color: var(--danger); }
+
+/* --- Advanced (silent-edit) panel -------------------------------------- */
+/* Kept visually quiet - it bypasses the approval workflow, so it should
+ * read as a power tool tucked away, never as a primary action. */
+.silent-edit-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-xs);
+  margin-bottom: 1rem;
+  overflow: hidden;
+}
+.silent-edit-panel summary {
+  cursor: pointer;
+  padding: 0.7rem 1.1rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-2);
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  user-select: none;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.silent-edit-panel summary::-webkit-details-marker { display: none; }
+.silent-edit-panel summary::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  background-color: currentColor;
+  opacity: 0.6;
+  transition: transform 0.15s ease;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='currentColor'%3E%3Cpath fill-rule='evenodd' d='M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z' clip-rule='evenodd'/%3E%3C/svg%3E") no-repeat center / contain;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='currentColor'%3E%3Cpath fill-rule='evenodd' d='M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z' clip-rule='evenodd'/%3E%3C/svg%3E") no-repeat center / contain;
+}
+.silent-edit-panel[open] summary::before { transform: rotate(90deg); }
+.silent-edit-panel summary:hover { background: var(--surface-2); color: var(--text); }
+.silent-edit-panel[open] summary {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.silent-edit-body { padding: 1.1rem; }
+.silent-edit-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+}
+.silent-edit-controls > div { min-width: 180px; }
+
+.current-status {
+  color: var(--text-3);
+  font-size: 0.6875rem;
+  font-weight: 400;
+}
+.silent-choice {
+  display: inline-block;
+  font-weight: 600;
+  font-size: 0.75rem;
+  color: var(--text-2);
+}
+
+/* Small on/off switch - a quiet toggle rather than a call-to-action button. */
+.toggle-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-2);
+  margin: 1rem 0 0.85rem;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.toggle-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.toggle-slider {
+  position: relative;
+  width: 34px;
+  height: 19px;
+  flex-shrink: 0;
+  background: var(--border-strong);
+  border-radius: var(--radius-full);
+  transition: background 0.18s ease;
+}
+.toggle-slider::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.18s ease;
+}
+.toggle-switch input:checked + .toggle-slider { background: var(--primary); }
+.toggle-switch input:checked + .toggle-slider::before { transform: translateX(15px); }
+.toggle-switch input:focus-visible + .toggle-slider { box-shadow: var(--ring); }
+.toggle-switch:hover .toggle-label { color: var(--text); }

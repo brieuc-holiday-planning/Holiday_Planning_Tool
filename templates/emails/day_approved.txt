@@ -1,0 +1,3 @@
+Hi {{ day.request.requester }},
+
+Your holiday request for {{ day.date }} ({{ day.get_day_part_display }}) was approved by {{ day.decided_by }}.

@@ -1,0 +1,66 @@
+{% comment %}
+Per-member quarterly worked/absence days plus the YTD capacity meter.
+Expects: rows (list of (member, metrics)), show_squad (bool), empty_text.
+{% endcomment %}
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th rowspan="2">Member</th>
+        {% if show_squad %}<th rowspan="2">Squad</th>{% endif %}
+        <th colspan="4" class="th-group col-divide">Worked days</th>
+        <th colspan="4" class="th-group col-divide">Absence days</th>
+        <th rowspan="2" class="col-divide">YTD worked / cap</th>
+      </tr>
+      <tr>
+        <th class="num col-divide">Q1</th><th class="num">Q2</th><th class="num">Q3</th><th class="num">Q4</th>
+        <th class="num col-divide">Q1</th><th class="num">Q2</th><th class="num">Q3</th><th class="num">Q4</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for member, m in rows %}
+      <tr>
+        <td>
+          <div class="cell-person">
+            <span class="avatar sm" aria-hidden="true">{{ member|stringformat:"s"|slice:":1" }}</span>
+            <span>
+              <span class="name">{{ member }}</span><br>
+              <span class="sub">{{ member.title.name }}</span>
+            </span>
+          </div>
+        </td>
+        {% if show_squad %}<td class="nowrap">{{ member.squad.name }}</td>{% endif %}
+        <td class="num col-divide">{{ m.worked_days.1|floatformat:"-1" }}</td>
+        <td class="num">{{ m.worked_days.2|floatformat:"-1" }}</td>
+        <td class="num">{{ m.worked_days.3|floatformat:"-1" }}</td>
+        <td class="num">{{ m.worked_days.4|floatformat:"-1" }}</td>
+        <td class="num col-divide{% if not m.absence_days.1 %} muted{% endif %}">{{ m.absence_days.1|floatformat:"-1" }}</td>
+        <td class="num{% if not m.absence_days.2 %} muted{% endif %}">{{ m.absence_days.2|floatformat:"-1" }}</td>
+        <td class="num{% if not m.absence_days.3 %} muted{% endif %}">{{ m.absence_days.3|floatformat:"-1" }}</td>
+        <td class="num{% if not m.absence_days.4 %} muted{% endif %}">{{ m.absence_days.4|floatformat:"-1" }}</td>
+        <td class="col-divide">
+          <div class="meter{% if m.over_cap %} over{% endif %}">
+            <div class="meter-head">
+              <span class="meter-value">{{ m.ytd_worked_total|floatformat:"-1" }}</span>
+              <span class="meter-cap">/ {{ m.annual_cap }}</span>
+            </div>
+            <div class="meter-track">
+              <div class="meter-fill" style="width: {{ m.cap_pct }}%;"></div>
+            </div>
+          </div>
+        </td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td class="empty-cell" colspan="{% if show_squad %}11{% else %}10{% endif %}">
+          <div class="empty">
+            <svg width="28" height="28" viewBox="0 0 20 20" fill="currentColor"><path d="M10 9a3 3 0 100-6 3 3 0 000 6zM3 17a7 7 0 0114 0H3z"/></svg>
+            <div class="empty-title">No members yet</div>
+            <div class="empty-sub">{{ empty_text }}</div>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

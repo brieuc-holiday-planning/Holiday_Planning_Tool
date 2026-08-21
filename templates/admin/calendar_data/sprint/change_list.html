@@ -1,0 +1,6 @@
+{% extends "admin/change_list.html" %}
+
+{% block object-tools-items %}
+  <li><a href="{% url 'admin:calendar_data_sprint_generate' %}" class="addlink">Generate sprints for a quarter</a></li>
+  {{ block.super }}
+{% endblock %}

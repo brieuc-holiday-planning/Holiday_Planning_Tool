@@ -1,0 +1,60 @@
+{% extends "admin/base.html" %}
+{% load i18n %}
+
+{% block extrastyle %}{{ block.super }}
+<style>
+  /* Align the admin chrome with the app's own palette (see static/css/app.css)
+     without reskinning Django's admin wholesale - just the brand bar, the
+     accent color and the link back into the app. */
+  :root {
+    --primary: #4f57c4;
+    --secondary: #4f57c4;
+    --accent: #4f57c4;
+    --link-fg: #434ab0;
+    --link-hover-color: #2f3585;
+    --header-bg: #131722;
+    --header-color: #ffffff;
+    --header-branding-color: #ffffff;
+    --breadcrumbs-bg: #f1f3f6;
+    --breadcrumbs-fg: #59616e;
+    --breadcrumbs-link-fg: #434ab0;
+    --default-button-bg: #4f57c4;
+    --default-button-hover-bg: #434ab0;
+    --object-tools-bg: #59616e;
+    --object-tools-hover-bg: #131722;
+  }
+  #site-name a { font-weight: 650; letter-spacing: -0.015em; }
+  #site-name a::before {
+    content: "";
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    margin-right: 8px;
+    vertical-align: -3px;
+    border-radius: 5px;
+    background: linear-gradient(135deg, #4f57c4 0%, #7a80e0 100%);
+  }
+  .back-to-app {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 11px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff !important;
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: background 0.12s ease;
+  }
+  .back-to-app:hover { background: rgba(255, 255, 255, 0.22); text-decoration: none; }
+</style>
+{% endblock %}
+
+{% block branding %}
+<div id="site-name"><a href="{% url 'admin:index' %}">{{ site_header|default:_('Holiday Planning Tool Admin') }}</a></div>
+{% endblock %}
+
+{% block nav-global %}
+<a class="back-to-app" href="{% url 'accounts:landing' %}">&larr; Back to Holiday Tool</a>
+{% endblock %}

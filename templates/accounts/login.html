@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Log in{% endblock %}
+{% block content %}
+<div class="auth-wrap">
+  <div class="auth-card">
+    <div class="auth-head">
+      <span class="brand-mark" aria-hidden="true">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor"><path d="M6 2a1 1 0 011 1v1h6V3a1 1 0 112 0v1h.5A2.5 2.5 0 0118 6.5v9A2.5 2.5 0 0115.5 18h-11A2.5 2.5 0 012 15.5v-9A2.5 2.5 0 014.5 4H5V3a1 1 0 011-1zM4 8v7.5c0 .28.22.5.5.5h11a.5.5 0 00.5-.5V8H4z"/></svg>
+      </span>
+      <h1>Welcome back</h1>
+      <p>Sign in to plan and approve time off.</p>
+    </div>
+
+    <form method="post" novalidate>
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+        <ul class="messages"><li class="error">{% for error in form.non_field_errors %}{{ error }}{% endfor %}</li></ul>
+      {% endif %}
+      {% for field in form %}
+        <div class="field">
+          <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% for error in field.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+        </div>
+      {% endfor %}
+      <button class="btn block" type="submit" style="margin-top:1.25rem;">Log in</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

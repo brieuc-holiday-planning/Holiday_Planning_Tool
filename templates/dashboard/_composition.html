@@ -1,0 +1,18 @@
+{% comment %}
+Squad/cluster composition as scannable stat tiles instead of a dense
+abbreviation table. Expects: title_totals, total_count, scope_label.
+{% endcomment %}
+<div class="stat-grid">
+  {% for t in title_totals %}
+  <div class="stat{% if not t.total %} is-empty{% endif %}">
+    <div class="stat-abbr">{{ t.abbreviation }}</div>
+    <div class="stat-value">{{ t.total }}</div>
+    <div class="stat-label">{{ t.label }}</div>
+  </div>
+  {% endfor %}
+  <div class="stat is-total">
+    <div class="stat-abbr">All</div>
+    <div class="stat-value">{{ total_count }}</div>
+    <div class="stat-label">{{ scope_label }} members</div>
+  </div>
+</div>

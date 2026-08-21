@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% load versioned_static %}
+{% block title %}{{ squad.name }} metrics{% endblock %}
+{% block extra_head %}
+<script src="{% vstatic 'js/cluster_squad_picker.js' %}"></script>
+{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <div class="eyebrow">{{ squad.tribe.name }} · {{ squad.cluster.name }}</div>
+    <h1>{{ squad.name }} metrics</h1>
+    <p class="subtitle">Quarterly worked and absence days for {{ year }}.</p>
+  </div>
+  <div class="page-actions">
+    <a class="btn secondary" href="{% url 'holidays:squad_calendar' squad.id %}">
+      <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path d="M6 2a1 1 0 011 1v1h6V3a1 1 0 112 0v1h.5A2.5 2.5 0 0118 6.5v9A2.5 2.5 0 0115.5 18h-11A2.5 2.5 0 012 15.5v-9A2.5 2.5 0 014.5 4H5V3a1 1 0 011-1zM4 8v7.5c0 .28.22.5.5.5h11a.5.5 0 00.5-.5V8H4z"/></svg>
+      Squad calendar &amp; requests
+    </a>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <div>
+      <h2>Browse squads</h2>
+      <p class="hint">Metrics are visible tribe-wide.</p>
+    </div>
+  </div>
+  <div class="card-body">
+    <div class="field-row">
+      <div class="field">
+        <label for="cluster-select">Cluster</label>
+        <select id="cluster-select">
+          {% for cluster in clusters_with_squads %}
+          <option value="{{ cluster.id }}"{% if cluster.id == squad.cluster_id %} selected{% endif %}>{{ cluster.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="squad-select">Squad</label>
+        <select id="squad-select">
+          {% for cluster in clusters_with_squads %}{% for s in cluster.squads %}
+          <option value="{{ s.id }}" data-cluster="{{ cluster.id }}" data-url="{{ s.url }}"{% if s.id == squad.id %} selected{% endif %}>{{ s.name }}</option>
+          {% endfor %}{% endfor %}
+        </select>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Squad composition</h2></div>
+  <div class="card-body">
+    {% include "dashboard/_composition.html" with total_count=rows|length scope_label="squad" %}
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>Worked &amp; absence days — {{ year }}</h2>
+    <span class="tag">Bank holidays &amp; weekends excluded</span>
+  </div>
+  <div class="card-body flush">
+    {% include "dashboard/_metrics_table.html" with show_squad=False empty_text="Add members to this squad from the admin." %}
+  </div>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+  initClusterSquadPicker("cluster-select", "squad-select");
+});
+</script>
+{% endblock %}
