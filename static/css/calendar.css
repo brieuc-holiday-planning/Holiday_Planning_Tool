@@ -159,6 +159,14 @@
   box-shadow: none;
 }
 #calendar .fc-daygrid-event:hover { filter: brightness(0.95); text-decoration: none; }
+
+/* A half-day absence occupies half the cell, so it reads as partial time
+ * off rather than a whole day away. */
+#calendar .fc-daygrid-event.holiday-half-day {
+  width: 50%;
+  margin-right: auto;
+  overflow: hidden;
+}
 #calendar .fc-event-title { font-weight: 600; }
 #calendar .fc-h-event .fc-event-main { color: #fff; }
 #calendar .fc-daygrid-day-events { margin-bottom: 2px; }

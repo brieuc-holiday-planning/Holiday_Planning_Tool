@@ -58,15 +58,26 @@
             <td><span class="tag">{{ day.get_day_part_display }}</span></td>
             <td class="muted">{{ day.request.note|default:"—" }}</td>
             <td>
+              {% comment %}
+                The hidden fields carry the current filters/page so deciding
+                a day returns to the same view instead of resetting it.
+              {% endcomment %}
               <div class="decision-actions">
                 <form method="post" action="{% url 'holidays:approve_day' day.id %}">
-                  {% csrf_token %}<button class="btn approve sm" type="submit">Approve</button>
+                  {% csrf_token %}
+                  <input type="hidden" name="pending_requester" value="{{ selected_pending_requester }}">
+                  <input type="hidden" name="decided_requester" value="{{ selected_decided_requester }}">
+                  <input type="hidden" name="page" value="{{ decided_page.number }}">
+                  <button class="btn approve sm" type="submit">Approve</button>
                 </form>
                 <details class="refuse-pop">
                   <summary class="btn refuse sm">Refuse</summary>
                   <div class="refuse-panel">
                     <form method="post" action="{% url 'holidays:refuse_day' day.id %}">
                       {% csrf_token %}
+                      <input type="hidden" name="pending_requester" value="{{ selected_pending_requester }}">
+                      <input type="hidden" name="decided_requester" value="{{ selected_decided_requester }}">
+                      <input type="hidden" name="page" value="{{ decided_page.number }}">
                       <label for="reason-{{ day.id }}">Justification (required)</label>
                       <textarea id="reason-{{ day.id }}" name="reason" rows="2" required placeholder="Why is this day refused?"></textarea>
                       <button class="btn refuse sm block" type="submit" style="margin-top:0.5rem;">Confirm refusal</button>
@@ -96,15 +107,18 @@
 <div class="card">
   <div class="card-head">
     <div>
-      <h2>Recently decided</h2>
-      <p class="hint">Includes days set directly by a squad member with edit rights.</p>
+      <div class="row">
+        <h2>Decided</h2>
+        <span class="tag">{{ decided_total }} day{{ decided_total|pluralize }}</span>
+      </div>
+      <p class="hint">Full history, including days set directly by a squad member with edit rights.</p>
     </div>
     {% if decided_requesters %}
     <form method="get" class="row tight">
       <input type="hidden" name="pending_requester" value="{{ selected_pending_requester }}">
       <label for="decided_requester" style="margin:0;">Requester</label>
       <select name="decided_requester" id="decided_requester" onchange="this.form.submit()" style="width:auto;min-width:150px;">
-        <option value="">Everyone (last 20)</option>
+        <option value="">Everyone</option>
         {% for u in decided_requesters %}
         <option value="{{ u.id }}"{% if selected_decided_requester == u.id|stringformat:"s" %} selected{% endif %}>{{ u }}</option>
         {% endfor %}
@@ -157,5 +171,42 @@
       </table>
     </div>
   </div>
+
+  {% if decided_page.paginator.num_pages > 1 %}
+  {% with q=filter_query %}
+  <div class="card-foot pagination">
+    <span class="page-info">
+      Showing {{ decided_page.start_index }}–{{ decided_page.end_index }} of {{ decided_total }}
+    </span>
+    <span class="page-links">
+      {% if decided_page.has_previous %}
+        <a href="?{% if q %}{{ q }}&amp;{% endif %}page=1" title="First page">&laquo;</a>
+        <a href="?{% if q %}{{ q }}&amp;{% endif %}page={{ decided_page.previous_page_number }}" title="Previous page">&lsaquo;</a>
+      {% else %}
+        <span class="disabled">&laquo;</span><span class="disabled">&lsaquo;</span>
+      {% endif %}
+
+      {% for num in decided_page.paginator.page_range %}
+        {% if num == decided_page.number %}
+          <span class="current">{{ num }}</span>
+        {% elif num == 1 or num == decided_page.paginator.num_pages %}
+          <a href="?{% if q %}{{ q }}&amp;{% endif %}page={{ num }}">{{ num }}</a>
+        {% elif num > decided_page.number|add:"-3" and num < decided_page.number|add:"3" %}
+          <a href="?{% if q %}{{ q }}&amp;{% endif %}page={{ num }}">{{ num }}</a>
+        {% elif num == decided_page.number|add:"-3" or num == decided_page.number|add:"3" %}
+          <span class="gap">…</span>
+        {% endif %}
+      {% endfor %}
+
+      {% if decided_page.has_next %}
+        <a href="?{% if q %}{{ q }}&amp;{% endif %}page={{ decided_page.next_page_number }}" title="Next page">&rsaquo;</a>
+        <a href="?{% if q %}{{ q }}&amp;{% endif %}page={{ decided_page.paginator.num_pages }}" title="Last page">&raquo;</a>
+      {% else %}
+        <span class="disabled">&rsaquo;</span><span class="disabled">&raquo;</span>
+      {% endif %}
+    </span>
+  </div>
+  {% endwith %}
+  {% endif %}
 </div>
 {% endblock %}

@@ -9,6 +9,12 @@ function formatLocalDate(date) {
   return y + "-" + m + "-" + d;
 }
 
+/* Half days make working counts fractional: render 3.5 as "3.5" but 3 as
+ * "3" rather than "3.0". */
+function formatUnits(value) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
 function injectDaySummaries(calendarEl, events, titleTotals) {
   calendarEl.querySelectorAll(".day-working-summary").forEach(function (el) {
     el.remove();
@@ -18,13 +24,15 @@ function injectDaySummaries(calendarEl, events, titleTotals) {
   var absentByDateTitle = {};
   events.forEach(function (ev) {
     var props = ev.extendedProps || {};
-    // Only APPROVED, full-day absences reduce the "working" headcount - a
-    // pending request isn't confirmed yet, and a half-day absentee is still
-    // working part of the day.
-    if (props.type !== "holiday" || props.status !== "approved" || props.dayPart !== "full") return;
+    // Only APPROVED absences reduce the "working" headcount - a pending
+    // request isn't confirmed yet. A half day removes half a person: if one
+    // of four is off for half a day, 3.5 are working.
+    if (props.type !== "holiday" || props.status !== "approved") return;
+    var units = props.dayPart === "half" ? 0.5 : 1;
     var dateStr = ev.startStr.slice(0, 10);
     absentByDateTitle[dateStr] = absentByDateTitle[dateStr] || {};
-    absentByDateTitle[dateStr][props.titleCode] = (absentByDateTitle[dateStr][props.titleCode] || 0) + 1;
+    absentByDateTitle[dateStr][props.titleCode] =
+      (absentByDateTitle[dateStr][props.titleCode] || 0) + units;
   });
 
   calendarEl.querySelectorAll(".fc-daygrid-day").forEach(function (cell) {
@@ -46,7 +54,8 @@ function injectDaySummaries(calendarEl, events, titleTotals) {
       // row, so they get picked out rather than blending into the list.
       var part = document.createElement("span");
       if (absent) part.className = "away";
-      part.textContent = titleTotals[code].abbreviation + " " + working + "/" + total;
+      // Half days make this fractional; show 3.5 but plain 3 rather than 3.0.
+      part.textContent = titleTotals[code].abbreviation + " " + formatUnits(working) + "/" + total;
       summary.appendChild(part);
       rendered += 1;
     });
@@ -85,6 +94,13 @@ function initSquadCalendar(opts) {
     weekends: false, // weekends carry no work/absence information, so drop the columns entirely
     dayMaxEvents: false, // never truncate with "+N more" - every absentee must show
     events: opts.feedUrl,
+    // A half-day absence is drawn as a half-width chip, so the calendar
+    // shows at a glance that the person is only away for part of the day.
+    eventClassNames: function (arg) {
+      var props = arg.event.extendedProps || {};
+      if (props.type === "holiday" && props.dayPart === "half") return ["holiday-half-day"];
+      return [];
+    },
     dayCellClassNames: function (arg) {
       var classes = [];
       if (opts.selectable) {

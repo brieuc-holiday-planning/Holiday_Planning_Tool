@@ -98,6 +98,19 @@ def approvable_title_ids_for(user):
     return title_ids
 
 
+def pending_days_for(user):
+    """Every still-pending day `user` is responsible for deciding, across
+    every title they cover as primary or backup. One definition shared by
+    the approval inbox and the nav badge so the two can never disagree."""
+    title_ids = approvable_title_ids_for(user)
+    if not title_ids:
+        return HolidayRequestDay.objects.none()
+    return HolidayRequestDay.objects.filter(
+        request__requester__title_id__in=title_ids,
+        status=HolidayRequestDay.Status.PENDING,
+    )
+
+
 def _can_decide(user, holiday_request_day):
     if user.pk == holiday_request_day.request.routed_chapter_lead_id:
         return True

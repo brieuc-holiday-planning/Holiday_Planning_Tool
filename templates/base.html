@@ -33,6 +33,7 @@
       <a class="nav-link" href="{% url 'holidays:approval_inbox' %}"{% if view_name == 'holidays:approval_inbox' %} aria-current="page"{% endif %}>
         <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path d="M2 5.5A2.5 2.5 0 014.5 3h11A2.5 2.5 0 0118 5.5V12h-4.28a2 2 0 00-1.79 1.1l-.34.68a1 1 0 01-.9.55H9.31a1 1 0 01-.9-.55l-.34-.68A2 2 0 006.28 12H2V5.5zM2 13.5V15a2 2 0 002 2h12a2 2 0 002-2v-1.5h-4.28l-.34.68A3 3 0 0110.69 16H9.31a3 3 0 01-2.68-1.82l-.35-.68H2z"/></svg>
         Approval inbox
+        {% if pending_approval_count %}<span class="count-badge danger" title="{{ pending_approval_count }} day(s) awaiting your decision">{{ pending_approval_count }}</span>{% endif %}
       </a>
     {% endif %}
     {% if user.is_scrum_master %}

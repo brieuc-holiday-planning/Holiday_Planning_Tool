@@ -2,11 +2,15 @@ import json
 from datetime import date, datetime
 from functools import wraps
 
+from urllib.parse import urlencode
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.paginator import Paginator
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.views.decorators.http import require_POST
 
 from apps.accounts.models import User
@@ -142,44 +146,82 @@ def silent_edit_status(request, squad_id):
     return redirect("holidays:squad_calendar", squad_id=squad.pk)
 
 
+# The decided list is a full history, so it is paged rather than truncated.
+DECIDED_PER_PAGE = 25
+
+# Carried through pagination links and across approve/refuse, so acting on
+# one day never resets the view the approver had set up.
+INBOX_VIEW_PARAMS = ("pending_requester", "decided_requester", "page")
+
+
+def _inbox_url(values):
+    """The inbox URL with whichever of INBOX_VIEW_PARAMS are set."""
+    query = urlencode({key: value for key, value in values.items() if value})
+    url = reverse("holidays:approval_inbox")
+    return f"{url}?{query}" if query else url
+
+
+def _requester_options(day_qs, selected_id):
+    """Requesters to offer in a filter dropdown: everyone appearing in the
+    unfiltered list, plus whoever is currently selected.
+
+    Keeping the selection in the list matters after a decision - approving
+    someone's last pending day would otherwise drop them from the options,
+    so the dropdown would snap back to "Everyone" and the filter would look
+    like it had been lost even though it is still applied.
+    """
+    ids = set(day_qs.values_list("request__requester_id", flat=True))
+    if selected_id:
+        try:
+            ids.add(int(selected_id))
+        except (TypeError, ValueError):
+            pass
+    return User.objects.filter(pk__in=ids).order_by("username")
+
+
 @approver_required
 def approval_inbox(request):
     """Every day (full or half) submitted for a title this user can approve
     (as primary Chapter Lead or as a designated backup) is its own line to
     approve or refuse - a multi-day request can end up partly approved and
-    partly refused. Pending and recently-decided days can each be filtered
-    down to one requester via a dropdown."""
+    partly refused. Pending and decided days can each be filtered down to
+    one requester; the decided list is the complete history, paged."""
     approvable_title_ids = services.approvable_title_ids_for(request.user)
 
     pending_qs = (
-        HolidayRequestDay.objects.filter(
-            request__requester__title_id__in=approvable_title_ids,
-            status=HolidayRequestDay.Status.PENDING,
-        )
+        services.pending_days_for(request.user)
         .select_related("request", "request__requester", "request__requester__squad")
         .order_by("date")
     )
-    pending_requesters = User.objects.filter(
-        pk__in=pending_qs.values_list("request__requester_id", flat=True).distinct()
-    ).order_by("username")
     pending_requester_id = request.GET.get("pending_requester") or ""
+    pending_requesters = _requester_options(pending_qs, pending_requester_id)
     if pending_requester_id:
         pending_qs = pending_qs.filter(request__requester_id=pending_requester_id)
 
     decided_qs = (
         HolidayRequestDay.objects.filter(request__requester__title_id__in=approvable_title_ids)
         .exclude(status=HolidayRequestDay.Status.PENDING)
-        .select_related("request", "request__requester")
-        .order_by("-decided_at")
+        .select_related("request", "request__requester", "decided_by")
+        .order_by("-decided_at", "-pk")
     )
-    decided_requesters = User.objects.filter(
-        pk__in=decided_qs.values_list("request__requester_id", flat=True).distinct()
-    ).order_by("username")
     decided_requester_id = request.GET.get("decided_requester") or ""
+    decided_requesters = _requester_options(decided_qs, decided_requester_id)
     if decided_requester_id:
         decided_qs = decided_qs.filter(request__requester_id=decided_requester_id)
-    else:
-        decided_qs = decided_qs[:20]
+
+    decided_page = Paginator(decided_qs, DECIDED_PER_PAGE).get_page(request.GET.get("page"))
+
+    # Everything except `page`, for pagination links to append their own.
+    filter_query = urlencode(
+        {
+            key: value
+            for key, value in (
+                ("pending_requester", pending_requester_id),
+                ("decided_requester", decided_requester_id),
+            )
+            if value
+        }
+    )
 
     return render(
         request,
@@ -188,34 +230,42 @@ def approval_inbox(request):
             "pending": pending_qs,
             "pending_requesters": pending_requesters,
             "selected_pending_requester": pending_requester_id,
-            "decided": decided_qs,
+            "decided": decided_page,
+            "decided_page": decided_page,
+            "decided_total": decided_page.paginator.count,
             "decided_requesters": decided_requesters,
             "selected_decided_requester": decided_requester_id,
+            "filter_query": filter_query,
         },
     )
+
+
+def _decide_and_return(request, day_id, decide):
+    """Shared approve/refuse plumbing: act on the day, then return the
+    approver to exactly the filtered page they came from."""
+    day = get_object_or_404(HolidayRequestDay, pk=day_id)
+    try:
+        decide(day)
+    except ValidationError as exc:
+        messages.error(request, exc.message)
+    return redirect(_inbox_url({key: request.POST.get(key, "") for key in INBOX_VIEW_PARAMS}))
 
 
 @approver_required
 @require_POST
 def approve_day(request, day_id):
-    day = get_object_or_404(HolidayRequestDay, pk=day_id)
-    try:
+    def decide(day):
         services.approve_day(day, request.user)
-    except ValidationError as exc:
-        messages.error(request, exc.message)
-    else:
         messages.success(request, f"Approved {day.request.requester}'s {day.date} request.")
-    return redirect("holidays:approval_inbox")
+
+    return _decide_and_return(request, day_id, decide)
 
 
 @approver_required
 @require_POST
 def refuse_day(request, day_id):
-    day = get_object_or_404(HolidayRequestDay, pk=day_id)
-    try:
+    def decide(day):
         services.refuse_day(day, request.user, reason=request.POST.get("reason", ""))
-    except ValidationError as exc:
-        messages.error(request, exc.message)
-    else:
         messages.success(request, f"Refused {day.request.requester}'s {day.date} request.")
-    return redirect("holidays:approval_inbox")
+
+    return _decide_and_return(request, day_id, decide)

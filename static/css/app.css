@@ -580,6 +580,57 @@ td.empty-cell:hover { background: transparent; }
   font-variant-numeric: tabular-nums;
 }
 .count-badge.zero { background: var(--surface-3); color: var(--text-3); }
+/* Work waiting on you - red so it reads as "act on this", not decoration. */
+.count-badge.danger { background: #d13b30; color: #fff; }
+
+/* --- Pagination -------------------------------------------------------- */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.pagination .page-info {
+  font-size: 0.75rem;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.pagination .page-links { display: flex; align-items: center; gap: 0.3rem; }
+.pagination .page-links a,
+.pagination .page-links span {
+  display: inline-grid;
+  place-items: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 0.45rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+}
+.pagination .page-links a:hover {
+  background: var(--surface-3);
+  color: var(--text);
+  text-decoration: none;
+}
+.pagination .page-links .current {
+  background: var(--primary-soft);
+  border-color: var(--primary-border);
+  color: var(--primary);
+}
+.pagination .page-links .disabled {
+  color: var(--text-3);
+  opacity: 0.5;
+}
+.pagination .page-links .gap {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-3);
+}
 
 /* --- Stat tiles (squad / cluster composition) -------------------------- */
 .stat-grid {

@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from django.contrib.auth.models import Permission
 from django.core import mail
 from django.test import TestCase
+from django.utils import timezone
 
 from apps.accounts.models import User
 from apps.calendar_data.models import BankHoliday
@@ -214,13 +215,12 @@ class ApprovalInboxFilterTests(HolidayViewsTestCase):
 
         self.client.login(username="lead1", password="pass1234")
         response = self.client.get(f"/approvals/?decided_requester={self.other_end_user.pk}")
-        content = response.content.decode()
-        # The filter dropdown (which precedes the table) lists both
-        # usernames as options regardless of which is selected, so scope
-        # the check to the <table> itself, past the dropdown markup.
-        decided_table = content.split("Recently decided")[1].split("<table>")[1]
-        self.assertIn("eu2", decided_table)
-        self.assertNotIn("eu1", decided_table)
+        # Assert on the rows the view actually selected. The filter dropdown
+        # lists every requester as an option regardless of which is chosen,
+        # so searching the rendered HTML for a username proves nothing.
+        requesters = {day.request.requester for day in response.context["decided"]}
+        self.assertEqual(requesters, {self.other_end_user})
+        self.assertEqual(response.context["decided_total"], 1)
 
 
 class TemplateRenderingSmokeTests(HolidayViewsTestCase):
@@ -503,3 +503,281 @@ class SilentEditStatusViewTests(HolidayViewsTestCase):
         response = self.client.get("/approvals/")
         self.assertContains(response, "Called in sick")
         self.assertContains(response, "editor1")
+
+
+class DecidedPaginationTests(HolidayViewsTestCase):
+    """The decided list is the full history, paged - not truncated to a
+    fixed number of recent rows."""
+
+    def _make_decided(self, count, requester=None, status=HolidayRequestDay.Status.APPROVED):
+        from apps.holidays.models import HolidayRequest
+
+        requester = requester or self.end_user
+        req = HolidayRequest.objects.create(requester=requester, routed_chapter_lead=self.chapter_lead)
+        for offset in range(count):
+            HolidayRequestDay.objects.create(
+                request=req,
+                date=self.monday + timedelta(days=offset),
+                day_part="full",
+                status=status,
+                decided_by=self.chapter_lead,
+                decided_at=timezone.now(),
+            )
+
+    def test_more_than_one_page_is_reachable(self):
+        from apps.holidays.views import DECIDED_PER_PAGE
+
+        self._make_decided(DECIDED_PER_PAGE + 5)
+        self.client.login(username="lead1", password="pass1234")
+
+        page1 = self.client.get("/approvals/")
+        self.assertEqual(len(page1.context["decided"]), DECIDED_PER_PAGE)
+        self.assertEqual(page1.context["decided_total"], DECIDED_PER_PAGE + 5)
+        self.assertTrue(page1.context["decided_page"].has_next())
+
+        page2 = self.client.get("/approvals/?page=2")
+        self.assertEqual(len(page2.context["decided"]), 5)
+        self.assertFalse(page2.context["decided_page"].has_next())
+
+    def test_nothing_is_capped_at_twenty(self):
+        self._make_decided(30)
+        self.client.login(username="lead1", password="pass1234")
+        response = self.client.get("/approvals/")
+        self.assertEqual(response.context["decided_total"], 30)
+
+    def test_requester_filter_applies_to_the_decided_history(self):
+        other = User.objects.create_user(
+            username="eu_other",
+            password="pass1234",
+            role=User.Role.END_USER,
+            title=self.titles["data_scientist"],
+            squad=self.squad,
+        )
+        self._make_decided(3, requester=self.end_user)
+        self._make_decided(2, requester=other)
+
+        self.client.login(username="lead1", password="pass1234")
+        response = self.client.get(f"/approvals/?decided_requester={other.pk}")
+        self.assertEqual(response.context["decided_total"], 2)
+        for day in response.context["decided"]:
+            self.assertEqual(day.request.requester, other)
+
+    def test_filter_is_carried_into_pagination_links(self):
+        from apps.holidays.views import DECIDED_PER_PAGE
+
+        self._make_decided(DECIDED_PER_PAGE + 3)
+        self.client.login(username="lead1", password="pass1234")
+        response = self.client.get(f"/approvals/?decided_requester={self.end_user.pk}")
+        self.assertContains(response, f"decided_requester={self.end_user.pk}&amp;page=2")
+
+
+class InboxFilterSurvivesDecisionTests(HolidayViewsTestCase):
+    """Deciding a day must return the approver to the filtered view they
+    were working in, not reset the inbox."""
+
+    def setUp(self):
+        super().setUp()
+        self.other = User.objects.create_user(
+            username="eu_other",
+            password="pass1234",
+            role=User.Role.END_USER,
+            title=self.titles["data_scientist"],
+            squad=self.squad,
+            email="other@example.com",
+        )
+        from apps.holidays import services
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.req = services.submit_request(self.end_user, [(self.monday, "full")])
+        self.day = self.req.days.get()
+        self.client.login(username="lead1", password="pass1234")
+
+    def test_approve_redirects_back_with_the_filter(self):
+        response = self.client.post(
+            f"/approvals/days/{self.day.id}/approve/",
+            {"pending_requester": str(self.end_user.pk), "decided_requester": str(self.other.pk), "page": "2"},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(f"pending_requester={self.end_user.pk}", response.url)
+        self.assertIn(f"decided_requester={self.other.pk}", response.url)
+        self.assertIn("page=2", response.url)
+
+    def test_refuse_redirects_back_with_the_filter(self):
+        response = self.client.post(
+            f"/approvals/days/{self.day.id}/refuse/",
+            {"reason": "Not this week", "pending_requester": str(self.end_user.pk)},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(f"pending_requester={self.end_user.pk}", response.url)
+
+    def test_no_filter_means_a_plain_inbox_url(self):
+        response = self.client.post(f"/approvals/days/{self.day.id}/approve/")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, "/approvals/")
+
+
+class PendingBadgeTests(HolidayViewsTestCase):
+    """The nav shows a red count of days waiting on this approver."""
+
+    def test_badge_counts_only_days_this_user_can_decide(self):
+        from apps.holidays import services
+
+        # two for a title lead1 covers...
+        with self.captureOnCommitCallbacks(execute=True):
+            services.submit_request(self.end_user, [(self.monday, "full"), (self.monday + timedelta(days=1), "half")])
+        # ...and one for a title they do not
+        outsider = User.objects.create_user(
+            username="eu_ai",
+            password="pass1234",
+            role=User.Role.END_USER,
+            title=self.titles["ai_engineer"],
+            squad=self.squad,
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            services.submit_request(outsider, [(self.monday, "full")])
+
+        self.client.login(username="lead1", password="pass1234")
+        response = self.client.get(f"/squads/{self.squad.id}/calendar/")
+        self.assertEqual(response.context["pending_approval_count"], 2)
+        self.assertContains(response, "count-badge danger")
+
+    def test_no_badge_when_nothing_is_pending(self):
+        self.client.login(username="lead1", password="pass1234")
+        response = self.client.get("/approvals/")
+        self.assertEqual(response.context["pending_approval_count"], 0)
+        self.assertNotContains(response, "count-badge danger")
+
+    def test_badge_hidden_for_a_non_approver(self):
+        self.client.login(username="eu1", password="pass1234")
+        response = self.client.get(f"/squads/{self.squad.id}/calendar/")
+        self.assertFalse(response.context["user_is_approver"])
+        self.assertEqual(response.context["pending_approval_count"], 0)
+
+    def test_badge_drops_after_deciding(self):
+        from apps.holidays import services
+
+        with self.captureOnCommitCallbacks(execute=True):
+            req = services.submit_request(self.end_user, [(self.monday, "full")])
+        self.client.login(username="lead1", password="pass1234")
+        self.assertEqual(self.client.get("/approvals/").context["pending_approval_count"], 1)
+        self.client.post(f"/approvals/days/{req.days.get().id}/approve/")
+        self.assertEqual(self.client.get("/approvals/").context["pending_approval_count"], 0)
+
+
+class DecisionEmailViewTests(HolidayViewsTestCase):
+    """Approving or refusing through the inbox must notify the requester."""
+
+    def _pending_day(self):
+        from apps.holidays import services
+
+        with self.captureOnCommitCallbacks(execute=True):
+            req = services.submit_request(self.end_user, [(self.monday, "full")])
+        return req.days.get()
+
+    def test_approval_emails_the_requester(self):
+        day = self._pending_day()
+        self.client.login(username="lead1", password="pass1234")
+        mail.outbox.clear()
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(f"/approvals/days/{day.id}/approve/")
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn(self.end_user.email, mail.outbox[0].to)
+        self.assertIn("approved", mail.outbox[0].subject.lower())
+
+    def test_refusal_emails_the_requester_with_the_reason(self):
+        day = self._pending_day()
+        self.client.login(username="lead1", password="pass1234")
+        mail.outbox.clear()
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(f"/approvals/days/{day.id}/refuse/", {"reason": "Team is short-staffed"})
+        self.assertEqual(len(mail.outbox), 1)
+        self.assertIn(self.end_user.email, mail.outbox[0].to)
+        self.assertIn("refused", mail.outbox[0].subject.lower())
+        self.assertIn("Team is short-staffed", mail.outbox[0].body)
+
+
+class HalfDayCalendarFeedTests(HolidayViewsTestCase):
+    """The feed must carry enough for the calendar to draw a half day as a
+    half-width chip and to deduct only half a person from the working
+    count (see static/js/squad_calendar_widget.js)."""
+
+    def test_feed_marks_the_day_part_of_each_absence(self):
+        from apps.holidays import services
+
+        tuesday = self.monday + timedelta(days=1)
+        with self.captureOnCommitCallbacks(execute=True):
+            req = services.submit_request(self.end_user, [(self.monday, "half"), (tuesday, "full")])
+        for day in req.days.all():
+            services.approve_day(day, self.chapter_lead)
+
+        self.client.login(username="lead1", password="pass1234")
+        response = self.client.get(
+            f"/squads/{self.squad.id}/calendar-feed/"
+            f"?start={(self.monday - timedelta(days=1)).isoformat()}"
+            f"&end={(tuesday + timedelta(days=1)).isoformat()}"
+        )
+        by_date = {
+            event["start"]: event["extendedProps"]
+            for event in response.json()
+            if event.get("extendedProps", {}).get("type") == "holiday"
+        }
+        self.assertEqual(by_date[self.monday.isoformat()]["dayPart"], "half")
+        self.assertEqual(by_date[tuesday.isoformat()]["dayPart"], "full")
+        # both approved, so both count towards the working total
+        self.assertEqual(by_date[self.monday.isoformat()]["status"], "approved")
+
+    def test_half_day_absence_is_labelled_as_half(self):
+        from apps.holidays import services
+
+        with self.captureOnCommitCallbacks(execute=True):
+            req = services.submit_request(self.end_user, [(self.monday, "half")])
+        services.approve_day(req.days.get(), self.chapter_lead)
+
+        self.client.login(username="lead1", password="pass1234")
+        response = self.client.get(
+            f"/squads/{self.squad.id}/calendar-feed/"
+            f"?start={self.monday.isoformat()}&end={self.monday.isoformat()}"
+        )
+        holiday = next(e for e in response.json() if e.get("extendedProps", {}).get("type") == "holiday")
+        self.assertIn("Half day", holiday["title"])
+
+
+class FilterOptionSurvivesLastDecisionTests(HolidayViewsTestCase):
+    """Approving someone's last pending day must not drop them from the
+    filter dropdown - that would make the still-applied filter look lost."""
+
+    def test_selected_requester_stays_in_the_dropdown(self):
+        from apps.holidays import services
+
+        with self.captureOnCommitCallbacks(execute=True):
+            req = services.submit_request(self.end_user, [(self.monday, "full")])
+        day = req.days.get()
+
+        self.client.login(username="lead1", password="pass1234")
+        self.client.post(
+            f"/approvals/days/{day.id}/approve/",
+            {"pending_requester": str(self.end_user.pk)},
+        )
+        response = self.client.get(f"/approvals/?pending_requester={self.end_user.pk}")
+
+        self.assertEqual(list(response.context["pending"]), [])  # nothing left pending
+        self.assertIn(self.end_user, list(response.context["pending_requesters"]))
+        self.assertEqual(response.context["selected_pending_requester"], str(self.end_user.pk))
+        self.assertContains(response, f'<option value="{self.end_user.pk}" selected>', html=False)
+
+
+class TemplateCommentLeakTests(HolidayViewsTestCase):
+    """Django's {# #} comment is single-line only - a multi-line one renders
+    as visible text. Cheap guard so an explanatory comment can never end up
+    on screen again."""
+
+    def test_no_raw_template_comment_markers_render(self):
+        from apps.holidays import services
+
+        with self.captureOnCommitCallbacks(execute=True):
+            services.submit_request(self.end_user, [(self.monday, "full")])
+        self.client.login(username="lead1", password="pass1234")
+        for url in ("/approvals/", f"/squads/{self.squad.id}/calendar/"):
+            content = self.client.get(url).content.decode()
+            self.assertNotIn("{#", content, f"unrendered template comment in {url}")
+            self.assertNotIn("{%", content, f"unrendered template tag in {url}")
