@@ -440,7 +440,10 @@ def calendar_feed_events(squad, start, end):
         events.append(
             {
                 "id": f"holiday-{day.pk}",
-                "title": f"{req.requester} ({day.get_day_part_display()})",
+                # "Nina Kovac - 1/2 day" rather than parenthesised: the chips
+                # are narrow and often truncate, and a trailing "(1/2 day"
+                # with no closing bracket reads worse than a clipped dash.
+                "title": f"{req.requester} - {day.get_day_part_display()}",
                 "start": day.date.isoformat(),
                 "allDay": True,
                 # Palette matches the page legend in squad_calendar.html.

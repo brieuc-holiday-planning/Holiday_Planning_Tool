@@ -739,7 +739,23 @@ class HalfDayCalendarFeedTests(HolidayViewsTestCase):
             f"?start={self.monday.isoformat()}&end={self.monday.isoformat()}"
         )
         holiday = next(e for e in response.json() if e.get("extendedProps", {}).get("type") == "holiday")
-        self.assertIn("1/2 day", holiday["title"])
+        self.assertEqual(holiday["title"], f"{self.end_user} - 1/2 day")
+
+    def test_full_day_absence_uses_the_same_dash_format(self):
+        from apps.holidays import services
+
+        with self.captureOnCommitCallbacks(execute=True):
+            req = services.submit_request(self.end_user, [(self.monday, "full")])
+        services.approve_day(req.days.get(), self.chapter_lead)
+
+        self.client.login(username="lead1", password="pass1234")
+        response = self.client.get(
+            f"/squads/{self.squad.id}/calendar-feed/"
+            f"?start={self.monday.isoformat()}&end={self.monday.isoformat()}"
+        )
+        holiday = next(e for e in response.json() if e.get("extendedProps", {}).get("type") == "holiday")
+        self.assertEqual(holiday["title"], f"{self.end_user} - Full day")
+        self.assertNotIn("(", holiday["title"])
 
 
 class FilterOptionSurvivesLastDecisionTests(HolidayViewsTestCase):

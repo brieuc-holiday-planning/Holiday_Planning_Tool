@@ -101,6 +101,12 @@ function initSquadCalendar(opts) {
       if (props.type === "holiday" && props.dayPart === "half") return ["holiday-half-day"];
       return [];
     },
+    // Chips are narrow - a half-day one is only half a cell wide - so long
+    // names clip. Put the full label in the native tooltip so hovering
+    // always reveals who is away and for how much of the day.
+    eventDidMount: function (arg) {
+      arg.el.setAttribute("title", arg.event.title);
+    },
     dayCellClassNames: function (arg) {
       var classes = [];
       if (opts.selectable) {
