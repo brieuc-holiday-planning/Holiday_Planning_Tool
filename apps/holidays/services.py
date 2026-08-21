@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from apps.calendar_data.models import BankHoliday
 from apps.core.emails import (
+    notify_approved_day_cancelled,
     notify_day_approved,
     notify_day_refused,
     notify_request_submitted,
@@ -120,12 +121,35 @@ def _can_decide(user, holiday_request_day):
     return ChapterLeadAssignment.objects.filter(chapter_lead=user, title_id=requester_title_id).exists()
 
 
+def _units_for(day_part):
+    return 1.0 if day_part == HolidayRequestDay.DayPart.FULL else 0.5
+
+
+def booked_units_by_date(user, dates):
+    """How much of each day `user` has already committed, as units where a
+    full day is 1.0 and a 1/2 day is 0.5.
+
+    Only pending and approved days count - refused and cancelled ones have
+    released the day again.
+    """
+    booked = {}
+    rows = HolidayRequestDay.objects.filter(
+        request__requester=user,
+        status__in=[HolidayRequestDay.Status.PENDING, HolidayRequestDay.Status.APPROVED],
+        date__in=dates,
+    ).values_list("date", "day_part")
+    for day, day_part in rows:
+        booked[day] = booked.get(day, 0.0) + _units_for(day_part)
+    return booked
+
+
 def submit_request(user, day_entries, note=""):
     """day_entries: iterable of (date, day_part) pairs, day_part one of
-    HolidayRequestDay.DayPart. Validates weekends/bank-holidays/duplicates/
-    overlap-with-existing-requests, then creates the request + day rows and
-    schedules the submitted-notification email. Each day is approved or
-    refused individually afterward - see approve_day/refuse_day."""
+    HolidayRequestDay.DayPart. Validates past dates/weekends/bank-holidays/
+    duplicates/how much of each day is already booked, then creates the
+    request + day rows and schedules the submitted-notification email. Each
+    day is approved or refused individually afterward - see approve_day/
+    refuse_day."""
     day_entries = list(day_entries)
     if not day_entries:
         raise ValidationError("Select at least one day.")
@@ -141,23 +165,27 @@ def submit_request(user, day_entries, note=""):
             BankHoliday.objects.filter(tribe=tribe, date__in=dates).values_list("date", flat=True)
         )
 
+    today = timezone.localdate()
     for day, _part in day_entries:
+        if day < today:
+            raise ValidationError(f"{day} is in the past and cannot be requested.")
         if day.weekday() >= 5:
             raise ValidationError(f"{day} is a weekend and cannot be requested.")
         if day in bank_holidays:
             raise ValidationError(f"{day} is a bank holiday and cannot be requested.")
 
-    conflict = (
-        HolidayRequestDay.objects.filter(
-            request__requester=user,
-            status__in=[HolidayRequestDay.Status.PENDING, HolidayRequestDay.Status.APPROVED],
-            date__in=dates,
-        )
-        .values_list("date", flat=True)
-        .first()
-    )
-    if conflict:
-        raise ValidationError(f"You already have a request covering {conflict}.")
+    # A day holds 1.0 units in total, so what's already booked decides what
+    # can still be added: a 1/2 day leaves room for one more 1/2 day, while
+    # a full day leaves none.
+    booked = booked_units_by_date(user, dates)
+    for day, day_part in day_entries:
+        already = booked.get(day, 0.0)
+        if already + _units_for(day_part) > 1.0:
+            if already >= 1.0:
+                raise ValidationError(f"You already have a full day booked on {day}.")
+            raise ValidationError(
+                f"You already have a 1/2 day on {day} - only another 1/2 day can be added."
+            )
 
     with transaction.atomic():
         holiday_request = HolidayRequest.objects.create(
@@ -203,6 +231,51 @@ def refuse_day(holiday_request_day, decided_by, reason):
     holiday_request_day.save(update_fields=["status", "decided_by", "decided_at", "decision_reason"])
     transaction.on_commit(lambda: notify_day_refused(holiday_request_day))
     return holiday_request_day
+
+
+def cancel_own_day(user, holiday_request_day):
+    """A requester withdrawing one of their own days.
+
+    Pending days are withdrawn before anyone has looked at them; approved
+    days are giving back time off that was already granted, so the routed
+    Chapter Lead is emailed. Either way the row is kept as CANCELLED rather
+    than deleted: it leaves the date free to request again, disappears from
+    the calendar and metrics, and stays visible in the Chapter Lead's
+    decision board as an audit trail.
+    """
+    if holiday_request_day.request.requester_id != user.pk:
+        raise ValidationError("You can only cancel your own holiday requests.")
+
+    cancellable = [HolidayRequestDay.Status.PENDING, HolidayRequestDay.Status.APPROVED]
+    if holiday_request_day.status not in cancellable:
+        raise ValidationError(
+            f"This day is already {holiday_request_day.get_status_display().lower()} "
+            "and cannot be cancelled."
+        )
+
+    was_approved = holiday_request_day.status == HolidayRequestDay.Status.APPROVED
+    holiday_request_day.status = HolidayRequestDay.Status.CANCELLED
+    holiday_request_day.decided_by = user
+    holiday_request_day.decided_at = timezone.now()
+    holiday_request_day.decision_reason = "Cancelled by the requester."
+    holiday_request_day.save(
+        update_fields=["status", "decided_by", "decided_at", "decision_reason"]
+    )
+
+    if was_approved:
+        chapter_lead = holiday_request_day.request.routed_chapter_lead
+        transaction.on_commit(
+            lambda: notify_approved_day_cancelled(holiday_request_day, chapter_lead)
+        )
+    return holiday_request_day
+
+
+def cancellable_days_for(user):
+    """The user's own days they may still withdraw."""
+    return HolidayRequestDay.objects.filter(
+        request__requester=user,
+        status__in=[HolidayRequestDay.Status.PENDING, HolidayRequestDay.Status.APPROVED],
+    )
 
 
 def silently_set_day_status(editor, member, day_entries, comment):

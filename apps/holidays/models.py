@@ -42,7 +42,9 @@ class HolidayRequest(models.Model):
 class HolidayRequestDay(models.Model):
     class DayPart(models.TextChoices):
         FULL = "full", "Full day"
-        HALF = "half", "Half day"
+        # Written as "1/2 day" wherever it is shown - the stored value stays
+        # "half" so no data migration is needed.
+        HALF = "half", "1/2 day"
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"

@@ -3,7 +3,7 @@
 Internal Django app for planning and approving time off across a
 Tribe → Cluster → Squad organisation.
 
-- **Squad calendar** — who's away, sprints, bank holidays and events; click days to request time off (full or half).
+- **Squad calendar** — who's away, sprints, bank holidays and events; click days to request time off (full or 1/2 day).
 - **Per-day approval** — a Chapter Lead approves or refuses each day individually, with a required justification on refusal.
 - **Metrics** — quarterly worked and absence days per member against an annual worked-days cap.
 - **Admin** — admins manage people, org structure, titles, sprints, bank holidays and events.
@@ -62,101 +62,112 @@ a test; the file listed after each heading is where the rule lives.
 
 `apps/holidays/services.py::submit_request`
 
-19. A request covers one or more days; each day is **full (1.0)** or **half (0.5)**.
+19. A request covers one or more days; each day is a **full day (1.0)** or a **1/2 day (0.5)**. "1/2 day" is the wording used throughout the interface.
 20. You may only submit for **your own squad**. Other squads' calendars are viewable but read-only.
 21. A request must contain **at least one day**.
 22. A date may appear **only once** in a request.
-23. **Weekends cannot be requested** — nobody works them.
-24. **Bank holidays cannot be requested.**
-25. A date already covered by one of your own **pending or approved** days cannot be requested again. (Refused and cancelled days free the date up.)
-26. Validation is all-or-nothing: if any day fails, nothing is created.
+23. **Dates in the past cannot be requested** — today is the earliest bookable day.
+24. **Weekends cannot be requested** — nobody works them.
+25. **Bank holidays cannot be requested.**
+26. **A day holds 1.0 units**, where a full day is 1.0 and a 1/2 day is 0.5. A new request is rejected if it would take a date past 1.0. So a 1/2 day can be added on top of an existing 1/2 day, but nothing can be added to a full day, and a full day cannot be added to a 1/2 day. Pending days consume capacity too; refused and cancelled ones release it.
+27. Validation is all-or-nothing: if any day fails, nothing is created.
 
 ## 5. Deciding requests
 
 `apps/holidays/services.py`, `apps/holidays/views.py`
 
-27. **Approval is per day, not per request** — a multi-day submission can end up partly approved and partly refused.
-28. Only a **pending** day can be approved or refused; a decided day is final through this route.
-29. Only the routed approver or a designated backup may decide (rule 18).
-30. **Refusal requires a non-empty justification.** Approval requires nothing.
-31. Every decision records who made it and when.
-32. The approval inbox shows only days belonging to titles the viewer can approve for, and can be filtered to a single requester — separately for pending and recently-decided lists.
+28. **Approval is per day, not per request** — a multi-day submission can end up partly approved and partly refused.
+29. Only a **pending** day can be approved or refused; a decided day is final through this route.
+30. Only the routed approver or a designated backup may decide (rule 18).
+31. **Refusal requires a non-empty justification.** Approval requires nothing.
+32. Every decision records who made it and when.
+33. The approval inbox shows only days belonging to titles the viewer can approve for, and can be filtered to a single requester. The decided list is the complete history, paged, and the filter is carried through pagination and across a decision.
+34. A **red badge** on the nav shows how many days are awaiting this approver's decision.
 
-## 6. Direct edit — the "silently edit any holiday request" permission
+## 6. Cancelling your own time off
+
+`apps/holidays/services.py::cancel_own_day`
+
+35. A requester may **cancel their own pending or approved days**. Nobody else's, and a refused or already-cancelled day cannot be cancelled again.
+36. Cancelling an **approved** day emails the routed Chapter Lead, since they had planned cover around it. Cancelling a **pending** day notifies nobody — it was never granted.
+37. A cancelled day is kept as `CANCELLED` rather than deleted: it leaves the calendar and the metrics as if it never happened, **frees the date to be requested again**, and stays in the Chapter Lead's decision board as an audit trail.
+
+## 7. Direct edit — the "silently edit any holiday request" permission
 
 `apps/holidays/services.py::silently_set_day_status`
 
 A narrowly-scoped power for someone who keeps a squad's calendar accurate
 (e.g. recording an unplanned absence). Granted per user in the admin.
 
-33. The holder may only edit members of **their own squad**.
-34. **A Chapter Lead's holiday can never be edited this way** — enforced server-side, and Chapter Leads are not offered in the member picker.
-35. Only two actions exist: **add** a full/half day, or **cancel** an existing one. Nothing else can be set.
-36. **A comment is always required.**
-37. Weekends and bank holidays cannot be added (same as rule 23–24).
-38. **Cancel requires an existing pending or approved day** on that date; there is nothing to cancel otherwise.
-39. An added day is recorded as **approved immediately**, stamped with the editor as the decider — it bypasses the approval workflow.
-40. Adding to a date that already has a pending/approved day **updates that day in place** rather than creating a conflicting second row.
-41. A cancelled day gets the distinct **Cancelled** status: excluded from the calendar and from metrics as if it never existed, but the row and its comment are kept for audit.
-42. This is *not* silent to the chapter lead: every change **emails a recap** to the routed Chapter Lead and appears in their approval inbox under *Recently decided*, attributed to the editor.
+38. The holder may only edit members of **their own squad**.
+39. **A Chapter Lead's holiday can never be edited this way** — enforced server-side, and Chapter Leads are not offered in the member picker.
+40. Only two actions exist: **add** a full or 1/2 day, or **cancel** an existing one. Nothing else can be set.
+41. **A comment is always required.**
+42. Weekends and bank holidays cannot be added (same as rules 24–25).
+43. **Cancel requires an existing pending or approved day** on that date; there is nothing to cancel otherwise.
+44. An added day is recorded as **approved immediately**, stamped with the editor as the decider — it bypasses the approval workflow.
+45. Adding to a date that already has a pending/approved day **updates that day in place** rather than creating a conflicting second row.
+46. A cancelled day gets the distinct **Cancelled** status: excluded from the calendar and from metrics as if it never existed, but the row and its comment are kept for audit.
+47. This is *not* silent to the chapter lead: every change **emails a recap** to the routed Chapter Lead and appears in their approval inbox under *Recently decided*, attributed to the editor.
 
-## 7. Squad calendar
+## 8. Squad calendar
 
 `apps/holidays/services.py::calendar_feed_events`
 
-43. **Weekends are hidden entirely** — no Saturday or Sunday columns.
-44. Only **pending and approved** absences appear. Refused and cancelled days do not.
-45. **Any authenticated user may view any squad's calendar** across the whole tribe. Only *submitting* is restricted to your own squad.
-46. Each day shows a **per-title working count** (`AI 1/1 · DS 1/2`). Only approved, full-day absences reduce the count — a pending request isn't confirmed, and a half-day absentee still works part of the day. Under-staffed titles are highlighted.
-47. Sprints render as background bands labelled `Q3SP4`, split so they **never cover a weekend**.
-48. Events are informational and appear at tribe, cluster or squad scope depending on their own scope.
+48. **Weekends are hidden entirely** — no Saturday or Sunday columns.
+49. Only **pending and approved** absences appear. Refused and cancelled days do not.
+50. **Any authenticated user may view any squad's calendar** across the whole tribe. Only *submitting* is restricted to your own squad.
+51. Each day shows a **per-title working count** (`AI 1/1 · DS 3.5/4`). Only **approved** absences reduce it — a pending request isn't confirmed yet — and a 1/2 day removes half a person, so three of four present plus one on a 1/2 day reads `3.5/4`. Under-staffed titles are highlighted.
+52. Sprints render as background bands labelled `Q3SP4`, split so they **never cover a weekend**.
+53. Events are informational and appear at tribe, cluster or squad scope depending on their own scope.
 
-## 8. Sprints
+## 9. Sprints
 
 `apps/calendar_data/models.py`, `apps/calendar_data/services.py`
 
-49. Sprints are **only ever created a whole quarter at a time** through *Generate sprints for a quarter*. Manual "add" is disabled in the admin.
-50. A sprint is always **Monday of week N to Friday of week N+1** — 10 working days.
-51. The range must **start on a Monday** and **end on a Friday**, with the end after the start.
-52. The range must divide into **whole 2-week blocks** (an even number of weeks).
-53. A quarter may contain **at most 8 sprints**.
-54. Only **one batch per (tribe, year, quarter)** — regenerating requires deleting the existing batch first.
-55. **Sprints may never overlap.** A requested range must be clear of *every* existing sprint in the tribe, not just the quarter being generated. The error names the sprints to delete.
-56. The same rule applies when **editing** an existing sprint — you cannot stretch one over its neighbour.
-57. Sprints are named **SP1…SPn, restarting each quarter**; the name is unique within `(tribe, year, quarter)`. They display as `Q{quarter}SP{n}`.
-58. Generation is all-or-nothing — a validation failure creates nothing.
-59. The year picker offers **the current year, then next, then previous**, defaulting to the current one.
+54. Sprints are **only ever created a whole quarter at a time** through *Generate sprints for a quarter*. Manual "add" is disabled in the admin.
+55. A sprint is always **Monday of week N to Friday of week N+1** — 10 working days.
+56. The range must **start on a Monday** and **end on a Friday**, with the end after the start.
+57. The range must divide into **whole 2-week blocks** (an even number of weeks).
+58. A quarter may contain **at most 8 sprints**.
+59. Only **one batch per (tribe, year, quarter)** — regenerating requires deleting the existing batch first.
+60. **Sprints may never overlap.** A requested range must be clear of *every* existing sprint in the tribe, not just the quarter being generated. The error names the sprints to delete.
+61. The same rule applies when **editing** an existing sprint — you cannot stretch one over its neighbour.
+62. Sprints are named **SP1…SPn, restarting each quarter**; the name is unique within `(tribe, year, quarter)`. They display as `Q{quarter}SP{n}`.
+63. Generation is all-or-nothing — a validation failure creates nothing.
+64. The year picker offers **the current year, then next, then previous**, defaulting to the current one.
 
-## 9. Bank holidays and events
+## 10. Bank holidays and events
 
 `apps/calendar_data/models.py`
 
-60. A bank holiday is **one per date per tribe**.
-61. Bank holidays are excluded from worked-day metrics and cannot be booked as leave.
-62. An event's scope must match its foreign keys exactly: tribe-scoped sets neither cluster nor squad; cluster-scoped sets cluster only; squad-scoped sets squad. Enforced by both a DB constraint and form validation.
-63. An event's end date cannot precede its start date.
-64. **Events are purely informational** — they never affect metrics or block requests.
+65. A bank holiday is **one per date per tribe**.
+66. Bank holidays are excluded from worked-day metrics and cannot be booked as leave.
+67. An event's scope must match its foreign keys exactly: tribe-scoped sets neither cluster nor squad; cluster-scoped sets cluster only; squad-scoped sets squad. Enforced by both a DB constraint and form validation.
+68. An event's end date cannot precede its start date.
+69. **Events are purely informational** — they never affect metrics or block requests.
 
-## 10. Metrics
+## 11. Metrics
 
 `apps/dashboard/services.py`
 
-65. Metrics are computed per member per quarter for a calendar year.
-66. **Absence days** count **approved days only** — pending, refused and cancelled days are excluded. A half day counts 0.5.
-67. **Worked days** = weekdays in the quarter − weekday bank holidays − approved absences. Weekends never count.
-68. **YTD worked** is compared against `ANNUAL_WORKED_DAYS_CAP` (default **220**, configurable by env).
-69. The cap applies to **worked** days, not absence days — exceeding it means the member is on track to work more than their contractual maximum and should take more time off.
-70. Metrics are **visible tribe-wide** to any authenticated user; there is no write action to restrict.
+70. Metrics are computed per member per quarter for a calendar year.
+71. **Absence days** count **approved days only** — pending, refused and cancelled days are excluded. A 1/2 day counts 0.5.
+72. **Worked days** = weekdays in the quarter − weekday bank holidays − approved absences. Weekends never count.
+73. **YTD worked** is compared against `ANNUAL_WORKED_DAYS_CAP` (default **220**, configurable by env).
+74. The cap applies to **worked** days, not absence days — exceeding it means the member is on track to work more than their contractual maximum and should take more time off.
+75. Metrics are **visible tribe-wide** to any authenticated user; there is no write action to restrict.
 
-## 11. Notifications
+## 12. Notifications
 
 `apps/core/emails.py`
 
-71. **Request submitted** → the routed Chapter Lead (with an action link) **and** every squad watcher (FYI, no login-gated link).
-72. **Day approved / refused** → the requester; the refusal email includes the justification.
-73. **Direct edit** → the routed Chapter Lead, with a recap of the days changed and the comment.
-74. Email is sent **only after the database transaction commits**, so a rolled-back operation never sends a stray notification.
-75. Recipients without an email address are skipped rather than erroring.
+76. **Request submitted** → the routed Chapter Lead (with an action link) **and** every squad watcher (FYI, no login-gated link).
+77. **Day approved / refused** → the requester; the refusal email includes the justification.
+78. **Approved day cancelled by the requester** → the routed Chapter Lead, so they can re-plan the cover they had arranged. Cancelling a *pending* day notifies nobody.
+79. **Direct edit** → the routed Chapter Lead, with a recap of the days changed and the comment.
+80. Email is sent **only after the database transaction commits**, so a rolled-back operation never sends a stray notification.
+81. Recipients without an email address are skipped rather than erroring.
 
 ## Known gaps
 
@@ -205,6 +216,6 @@ user and holiday record. For anything beyond a small team, point
 ./app.sh test
 ```
 
-190 tests covering the rules above: the request/approval workflow, routing
+232 tests covering the rules above: the request/approval workflow, routing
 and backup approvers, sprint generation and overlap, metrics, notifications,
 and RBAC across both the app and the admin.

@@ -118,6 +118,22 @@ def submit_request(request, squad_id):
 
 @login_required
 @require_POST
+def cancel_day(request, day_id):
+    """A requester withdrawing one of their own days. Ownership is enforced
+    by the queryset as well as in the service, so another user's day is a
+    404 rather than a permission error that would confirm it exists."""
+    day = get_object_or_404(HolidayRequestDay, pk=day_id, request__requester=request.user)
+    try:
+        services.cancel_own_day(request.user, day)
+    except ValidationError as exc:
+        messages.error(request, exc.message)
+    else:
+        messages.success(request, f"Cancelled your {day.date} holiday.")
+    return redirect("holidays:squad_calendar", squad_id=request.user.squad_id)
+
+
+@login_required
+@require_POST
 def silent_edit_status(request, squad_id):
     squad = get_object_or_404(Squad, pk=squad_id)
     if not request.user.has_perm(SILENT_EDIT_PERM) or request.user.squad_id != squad.pk:

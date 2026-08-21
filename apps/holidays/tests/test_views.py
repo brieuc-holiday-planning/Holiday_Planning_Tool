@@ -739,7 +739,7 @@ class HalfDayCalendarFeedTests(HolidayViewsTestCase):
             f"?start={self.monday.isoformat()}&end={self.monday.isoformat()}"
         )
         holiday = next(e for e in response.json() if e.get("extendedProps", {}).get("type") == "holiday")
-        self.assertIn("Half day", holiday["title"])
+        self.assertIn("1/2 day", holiday["title"])
 
 
 class FilterOptionSurvivesLastDecisionTests(HolidayViewsTestCase):
@@ -781,3 +781,95 @@ class TemplateCommentLeakTests(HolidayViewsTestCase):
             content = self.client.get(url).content.decode()
             self.assertNotIn("{#", content, f"unrendered template comment in {url}")
             self.assertNotIn("{%", content, f"unrendered template tag in {url}")
+
+
+class CancelOwnDayViewTests(HolidayViewsTestCase):
+    def _pending_day(self):
+        from apps.holidays import services
+
+        with self.captureOnCommitCallbacks(execute=True):
+            req = services.submit_request(self.end_user, [(self.monday, "full")])
+        return req.days.get()
+
+    def test_requester_can_cancel_a_pending_day(self):
+        day = self._pending_day()
+        self.client.login(username="eu1", password="pass1234")
+        response = self.client.post(f"/requests/days/{day.id}/cancel/")
+        self.assertEqual(response.status_code, 302)
+        day.refresh_from_db()
+        self.assertEqual(day.status, HolidayRequestDay.Status.CANCELLED)
+
+    def test_requester_can_cancel_an_approved_day_and_the_lead_is_emailed(self):
+        from apps.holidays import services
+
+        day = self._pending_day()
+        services.approve_day(day, self.chapter_lead)
+        self.client.login(username="eu1", password="pass1234")
+        mail.outbox.clear()
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(f"/requests/days/{day.id}/cancel/")
+        day.refresh_from_db()
+        self.assertEqual(day.status, HolidayRequestDay.Status.CANCELLED)
+        self.assertIn(self.chapter_lead.email, [a for m in mail.outbox for a in m.to])
+
+    def test_cancelling_someone_elses_day_is_a_404(self):
+        day = self._pending_day()
+        other = User.objects.create_user(
+            username="eu9",
+            password="pass1234",
+            role=User.Role.END_USER,
+            title=self.titles["data_scientist"],
+            squad=self.squad,
+        )
+        self.client.login(username="eu9", password="pass1234")
+        response = self.client.post(f"/requests/days/{day.id}/cancel/")
+        self.assertEqual(response.status_code, 404)
+        day.refresh_from_db()
+        self.assertEqual(day.status, HolidayRequestDay.Status.PENDING)
+
+    def test_anonymous_cannot_cancel(self):
+        day = self._pending_day()
+        response = self.client.post(f"/requests/days/{day.id}/cancel/")
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/accounts/login/", response.url)
+
+    def test_cancelled_day_shows_in_the_chapter_leads_decision_board(self):
+        from apps.holidays import services
+
+        day = self._pending_day()
+        services.approve_day(day, self.chapter_lead)
+        self.client.login(username="eu1", password="pass1234")
+        with self.captureOnCommitCallbacks(execute=True):
+            self.client.post(f"/requests/days/{day.id}/cancel/")
+
+        self.client.logout()
+        self.client.login(username="lead1", password="pass1234")
+        response = self.client.get("/approvals/")
+        self.assertIn(day, list(response.context["decided"]))
+        self.assertContains(response, "Cancelled")
+
+    def test_cancel_button_offered_for_own_pending_and_approved_days_only(self):
+        from apps.holidays import services
+
+        pending = self._pending_day()
+        tuesday = self.monday + timedelta(days=1)
+        with self.captureOnCommitCallbacks(execute=True):
+            refused_req = services.submit_request(self.end_user, [(tuesday, "full")])
+        refused = refused_req.days.get()
+        services.refuse_day(refused, self.chapter_lead, reason="No cover")
+
+        self.client.login(username="eu1", password="pass1234")
+        response = self.client.get(f"/squads/{self.squad.id}/calendar/")
+        self.assertContains(response, f"/requests/days/{pending.id}/cancel/")
+        self.assertNotContains(response, f"/requests/days/{refused.id}/cancel/")
+
+
+class PastDateViewTests(HolidayViewsTestCase):
+    def test_submitting_a_past_date_creates_nothing(self):
+        past = self.monday - timedelta(days=14)
+        self.client.login(username="eu1", password="pass1234")
+        self.client.post(
+            f"/squads/{self.squad.id}/requests/submit/",
+            {"days_json": json.dumps([{"date": past.isoformat(), "day_part": "full"}])},
+        )
+        self.assertEqual(HolidayRequest.objects.filter(requester=self.end_user).count(), 0)

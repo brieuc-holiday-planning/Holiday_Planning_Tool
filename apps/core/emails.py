@@ -55,6 +55,19 @@ def notify_day_refused(holiday_request_day):
     )
 
 
+def notify_approved_day_cancelled(holiday_request_day, chapter_lead):
+    """Tells the routed Chapter Lead that a day they had already approved
+    has been given back, so they can re-plan the cover they'd arranged."""
+    requester = holiday_request_day.request.requester
+    to = [chapter_lead.email] if chapter_lead and chapter_lead.email else []
+    _send(
+        subject=f"{requester} cancelled their approved {holiday_request_day.date} holiday",
+        template_base="day_cancelled",
+        context={"day": holiday_request_day, "requester": requester},
+        to=to,
+    )
+
+
 def notify_silent_edit(editor, member, chapter_lead, days, comment):
     """Recap sent to the routed Chapter Lead whenever someone with the
     silent-edit permission directly sets a squad member's day status from

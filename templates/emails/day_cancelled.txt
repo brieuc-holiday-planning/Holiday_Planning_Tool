@@ -1,0 +1,7 @@
+Hi,
+
+{{ requester }} has cancelled a holiday you had already approved:
+
+- {{ day.date }} ({{ day.get_day_part_display }})
+
+The day is free again and no longer counts towards their absence totals.

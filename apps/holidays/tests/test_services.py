@@ -452,3 +452,151 @@ class SilentlySetDayStatusTests(HolidayWorkflowTestCase):
         self.assertIn(self.chapter_lead.email, recipients)
         self.assertIn(self.editor.username, mail.outbox[0].body)
         self.assertIn("Confirmed by phone", mail.outbox[0].body)
+
+
+class PastDateTests(HolidayWorkflowTestCase):
+    """Holidays can only be planned forward - you cannot book time off that
+    has already happened."""
+
+    def _weekday_before(self, days_back):
+        day = date.today() - timedelta(days=days_back)
+        while day.weekday() >= 5:
+            day -= timedelta(days=1)
+        return day
+
+    def test_yesterday_is_rejected(self):
+        with self.assertRaises(ValidationError) as ctx:
+            services.submit_request(self.end_user, [(self._weekday_before(1), "full")])
+        self.assertIn("past", " ".join(ctx.exception.messages).lower())
+
+    def test_last_month_is_rejected(self):
+        with self.assertRaises(ValidationError):
+            services.submit_request(self.end_user, [(self._weekday_before(30), "full")])
+
+    def test_today_is_still_allowed(self):
+        today = date.today()
+        if today.weekday() >= 5:
+            self.skipTest("today is a weekend; weekend rejection is covered separately")
+        req = services.submit_request(self.end_user, [(today, "full")])
+        self.assertEqual(req.days.get().date, today)
+
+    def test_nothing_is_created_when_one_day_is_in_the_past(self):
+        with self.assertRaises(ValidationError):
+            services.submit_request(
+                self.end_user, [(self.monday, "full"), (self._weekday_before(3), "full")]
+            )
+        self.assertEqual(HolidayRequest.objects.filter(requester=self.end_user).count(), 0)
+
+
+class DayCapacityTests(HolidayWorkflowTestCase):
+    """A day holds 1.0 units: a 1/2 day leaves room for one more 1/2 day,
+    a full day leaves none."""
+
+    def _approve_all(self, req):
+        for day in req.days.all():
+            services.approve_day(day, self.chapter_lead)
+
+    def test_second_half_day_on_an_approved_half_day_is_allowed(self):
+        self._approve_all(services.submit_request(self.end_user, [(self.monday, "half")]))
+        req = services.submit_request(self.end_user, [(self.monday, "half")])
+        self.assertEqual(req.days.get().day_part, "half")
+        self.assertEqual(
+            HolidayRequestDay.objects.filter(
+                request__requester=self.end_user, date=self.monday
+            ).count(),
+            2,
+        )
+
+    def test_full_day_on_an_approved_full_day_is_rejected(self):
+        self._approve_all(services.submit_request(self.end_user, [(self.monday, "full")]))
+        with self.assertRaises(ValidationError) as ctx:
+            services.submit_request(self.end_user, [(self.monday, "full")])
+        self.assertIn("full day", " ".join(ctx.exception.messages).lower())
+
+    def test_half_day_on_an_approved_full_day_is_rejected(self):
+        self._approve_all(services.submit_request(self.end_user, [(self.monday, "full")]))
+        with self.assertRaises(ValidationError):
+            services.submit_request(self.end_user, [(self.monday, "half")])
+
+    def test_full_day_on_an_approved_half_day_is_rejected(self):
+        self._approve_all(services.submit_request(self.end_user, [(self.monday, "half")]))
+        with self.assertRaises(ValidationError) as ctx:
+            services.submit_request(self.end_user, [(self.monday, "full")])
+        self.assertIn("1/2 day", " ".join(ctx.exception.messages))
+
+    def test_third_half_day_is_rejected(self):
+        self._approve_all(services.submit_request(self.end_user, [(self.monday, "half")]))
+        self._approve_all(services.submit_request(self.end_user, [(self.monday, "half")]))
+        with self.assertRaises(ValidationError):
+            services.submit_request(self.end_user, [(self.monday, "half")])
+
+    def test_pending_days_also_consume_capacity(self):
+        services.submit_request(self.end_user, [(self.monday, "full")])  # left pending
+        with self.assertRaises(ValidationError):
+            services.submit_request(self.end_user, [(self.monday, "half")])
+
+    def test_refused_day_frees_the_date_again(self):
+        req = services.submit_request(self.end_user, [(self.monday, "full")])
+        services.refuse_day(req.days.get(), self.chapter_lead, reason="No cover")
+        again = services.submit_request(self.end_user, [(self.monday, "full")])
+        self.assertEqual(again.days.get().date, self.monday)
+
+
+class CancelOwnDayTests(HolidayWorkflowTestCase):
+    def test_pending_day_can_be_cancelled_without_emailing_the_lead(self):
+        req = services.submit_request(self.end_user, [(self.monday, "full")])
+        day = req.days.get()
+        mail.outbox.clear()
+        with self.captureOnCommitCallbacks(execute=True):
+            services.cancel_own_day(self.end_user, day)
+        day.refresh_from_db()
+        self.assertEqual(day.status, HolidayRequestDay.Status.CANCELLED)
+        self.assertEqual(day.decided_by, self.end_user)
+        self.assertEqual(mail.outbox, [])
+
+    def test_approved_day_cancellation_emails_the_chapter_lead(self):
+        req = services.submit_request(self.end_user, [(self.monday, "full")])
+        day = req.days.get()
+        services.approve_day(day, self.chapter_lead)
+        mail.outbox.clear()
+        with self.captureOnCommitCallbacks(execute=True):
+            services.cancel_own_day(self.end_user, day)
+        day.refresh_from_db()
+        self.assertEqual(day.status, HolidayRequestDay.Status.CANCELLED)
+        recipients = [addr for message in mail.outbox for addr in message.to]
+        self.assertIn(self.chapter_lead.email, recipients)
+        self.assertIn("cancelled", mail.outbox[0].subject.lower())
+
+    def test_cannot_cancel_someone_elses_day(self):
+        req = services.submit_request(self.end_user, [(self.monday, "full")])
+        with self.assertRaises(ValidationError):
+            services.cancel_own_day(self.chapter_lead, req.days.get())
+
+    def test_cannot_cancel_an_already_refused_day(self):
+        req = services.submit_request(self.end_user, [(self.monday, "full")])
+        day = req.days.get()
+        services.refuse_day(day, self.chapter_lead, reason="No cover")
+        with self.assertRaises(ValidationError):
+            services.cancel_own_day(self.end_user, day)
+
+    def test_cancelling_frees_the_date_to_request_again(self):
+        req = services.submit_request(self.end_user, [(self.monday, "full")])
+        day = req.days.get()
+        services.approve_day(day, self.chapter_lead)
+        services.cancel_own_day(self.end_user, day)
+        again = services.submit_request(self.end_user, [(self.monday, "full")])
+        self.assertEqual(again.days.get().date, self.monday)
+
+    def test_cancelled_day_leaves_the_calendar(self):
+        req = services.submit_request(self.end_user, [(self.monday, "full")])
+        day = req.days.get()
+        services.approve_day(day, self.chapter_lead)
+        services.cancel_own_day(self.end_user, day)
+        events = services.calendar_feed_events(self.squad, self.monday, self.monday)
+        self.assertEqual([e for e in events if e.get("extendedProps", {}).get("type") == "holiday"], [])
+
+
+class HalfDayLabelTests(HolidayWorkflowTestCase):
+    def test_half_is_written_as_one_half_day(self):
+        self.assertEqual(HolidayRequestDay(day_part="half").get_day_part_display(), "1/2 day")
+        self.assertEqual(HolidayRequestDay(day_part="full").get_day_part_display(), "Full day")
