@@ -216,6 +216,6 @@ user and holiday record. For anything beyond a small team, point
 ./app.sh test
 ```
 
-232 tests covering the rules above: the request/approval workflow, routing
+233 tests covering the rules above: the request/approval workflow, routing
 and backup approvers, sprint generation and overlap, metrics, notifications,
 and RBAC across both the app and the admin.

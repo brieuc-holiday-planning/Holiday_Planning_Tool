@@ -5,4 +5,4 @@ against the git tag so a release can never ship a mismatched version.
 Bump this, update CHANGELOG.md, then tag `v<version>`.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"

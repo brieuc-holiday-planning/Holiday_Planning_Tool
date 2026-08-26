@@ -4,9 +4,48 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] — 2026-08-26
+
+### Added
+
+- **Self-service cancellation.** A requester can cancel their own pending or
+  approved days. Cancelling an approved day emails the routed Chapter Lead
+  (they had planned cover around it); a pending one notifies nobody. The day
+  is kept as `CANCELLED`, so it leaves the calendar and metrics, frees the
+  date to be requested again, and stays in the decision board for audit.
+- **Paged decision history.** The Chapter Lead's decided list is now the full
+  history, paged 25 at a time, instead of the 20 most recent rows. The
+  requester filter applies across the whole history and survives pagination.
+- **Pending-count badge.** A red count of days awaiting decision sits on the
+  nav's Approval inbox link, for Chapter Leads and backups alike.
+- **Half-day rendering.** A 1/2 day is drawn as a half-width chip on the
+  calendar, so partial absence is visible at a glance.
+
+### Changed
+
+- Holidays can no longer be requested **for dates in the past**.
+- Overlap is measured in **units** rather than presence: a day holds 1.0, a
+  full day is 1.0 and a 1/2 day 0.5, and a request is refused if it would
+  take a date past 1.0. A 1/2 day can therefore be added on top of an
+  existing 1/2 day, while nothing can be stacked on a full day.
+- "Half day" is written **"1/2 day"** everywhere it is shown.
+- Calendar chips read **"Name - 1/2 day"** rather than "Name (1/2 day)",
+  which truncated to an unclosed bracket; the full label is also available
+  as a hover tooltip.
+
+### Fixed
+
+- Deciding a day **no longer resets the inbox filters**. The decision forms
+  carry the active filter and page, and a requester stays in the filter
+  dropdown after their last pending day is decided.
+- A 1/2 day now **deducts half a person** from the calendar's working count
+  (`DS 3.5/4`); previously half days were ignored and counted as present.
+- A multi-line `{# #}` comment rendered as visible text in the inbox's Note
+  column — Django's `{# #}` is single-line only.
+
 ## [1.0.0] — 2026-08-21
 
-First release. See the *Business rules* section of the README for the 75
+First release. See the *Business rules* section of the README for the
 rules the application enforces.
 
 ### Added
@@ -67,3 +106,4 @@ rules the application enforces.
   being able to act on it.
 
 [1.0.0]: https://gitlab.com/brieuc/holiday-planning-tool/-/releases/v1.0.0
+[1.1.0]: https://gitlab.com/brieuc/holiday-planning-tool/-/releases/v1.1.0
