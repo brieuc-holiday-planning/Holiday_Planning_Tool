@@ -210,6 +210,30 @@ starts with an empty database: run `./app.sh migrate` then
 user and holiday record. For anything beyond a small team, point
 `DATABASES` at Postgres.
 
+## Releasing
+
+CI runs on every push and pull request (`.github/workflows/ci.yml`): the test
+suite, plus a separate job that boots **production** settings, runs
+`collectstatic` and `manage.py check --deploy --fail-level WARNING`.
+
+A release is cut by pushing a tag (`.github/workflows/release.yml`):
+
+```bash
+# 1. bump __version__ in config/__init__.py
+# 2. add the section to CHANGELOG.md
+git tag -a v1.2.0 -m "release notes here" && git push origin main v1.2.0
+```
+
+The workflow refuses to build if the tag disagrees with `__version__`, packages
+the tag with `git archive` (**tracked files only**, so `db.sqlite3`, `.env` and
+`staticfiles/` can never reach a release), verifies the artifact contains none
+of them, and publishes a GitHub Release with the tarball and its SHA256
+attached. Release notes come from the annotated tag's message. No secrets to
+configure — `GITHUB_TOKEN` is provided automatically.
+
+`.gitlab-ci.yml` is the equivalent pipeline for GitLab and is unused on GitHub;
+delete it if you don't plan to mirror there.
+
 ## Tests
 
 ```bash

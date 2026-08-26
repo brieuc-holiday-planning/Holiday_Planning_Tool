@@ -1,0 +1,88 @@
+# Packages the code and publishes a GitHub Release when a v* tag is pushed.
+#
+# Release a version:
+#   1. bump __version__ in config/__init__.py
+#   2. add the section to CHANGELOG.md
+#   3. git tag -a v1.2.0 -m "..." && git push origin main v1.2.0
+#
+# Needs no secrets: GITHUB_TOKEN is provided automatically.
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: write # required to create the release
+
+jobs:
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+      - run: pip install -r requirements.txt
+      - run: python manage.py test
+
+  release:
+    name: Package and publish
+    needs: test # never publish something that does not pass its own tests
+    runs-on: ubuntu-latest
+    env:
+      PACKAGE_NAME: holiday-planning-tool
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need the annotated tag object for its message
+
+      - name: Read version and check it matches the tag
+        run: |
+          VERSION=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' config/__init__.py)
+          test -n "$VERSION" || { echo "No __version__ in config/__init__.py"; exit 1; }
+          # The tag is the release's identity; shipping a mismatched version
+          # is worse than failing the build.
+          if [ "v$VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match __version__ $VERSION (expected v$VERSION)"
+            exit 1
+          fi
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Build the artifact
+        run: |
+          mkdir -p dist
+          # git archive ships only tracked files, so the SQLite database,
+          # .env, staticfiles/ and local tooling cannot end up in a release
+          # by accident. --prefix stops it unpacking over the current dir.
+          git archive --format=tar.gz \
+            --prefix="${PACKAGE_NAME}-${VERSION}/" \
+            -o "dist/${PACKAGE_NAME}-${VERSION}.tar.gz" \
+            "$GITHUB_REF_NAME"
+          sha256sum "dist/${PACKAGE_NAME}-${VERSION}.tar.gz" \
+            | tee "dist/${PACKAGE_NAME}-${VERSION}.tar.gz.sha256"
+
+      - name: Refuse to publish an artifact containing secrets or data
+        run: |
+          if tar tzf "dist/${PACKAGE_NAME}-${VERSION}.tar.gz" \
+               | grep -Ei '(^|/)\.env$|db\.sqlite3|(^|/)staticfiles/|(^|/)\.venv/'; then
+            echo "::error::Artifact contains files that must never be published"
+            exit 1
+          fi
+          echo "Artifact is clean."
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Release notes come from the annotated tag's own message, so what
+          # you write when tagging is what appears on the release page.
+          git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > notes.md
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            "dist/${PACKAGE_NAME}-${VERSION}.tar.gz" \
+            "dist/${PACKAGE_NAME}-${VERSION}.tar.gz.sha256"
