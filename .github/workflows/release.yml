@@ -78,11 +78,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Release notes come from the annotated tag's own message, so what
-          # you write when tagging is what appears on the release page.
-          git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > notes.md
+          # --notes-from-tag makes GitHub read the annotated tag's own
+          # message server-side. Reading it locally with `git tag --format`
+          # does not work here: actions/checkout resolves the tag ref to its
+          # commit, so %(contents) silently yields the commit message
+          # instead of the release notes you wrote when tagging.
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
-            --notes-file notes.md \
+            --notes-from-tag \
             "dist/${PACKAGE_NAME}-${VERSION}.tar.gz" \
             "dist/${PACKAGE_NAME}-${VERSION}.tar.gz.sha256"
